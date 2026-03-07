@@ -55,32 +55,3 @@ class Player:
             print("Chip Shield reduced chip loss!")
             return int(chip_loss * 0.7)
         return chip_loss
-
-
-# -------- TEST AREA --------
-if __name__ == "__main__":
-    player = Player("Anthony")
-
-    # Add ALL buffs
-    player.add_buff("Lucky Draw")
-    player.add_buff("High Roller")
-    player.add_buff("Bluff Master")
-    player.add_buff("Second Chance")
-    player.add_buff("Intimidation")
-    player.add_buff("Chip Shield")
-    player.add_buff("All-In Fury")
-
-    base_hand = 0.35
-    boss_hand = 0.65
-
-    print(f"\nBoss base strength: {boss_hand}")
-
-    new_hand, new_boss = player.apply_buffs(base_hand, boss_hand)
-
-    print("\nFinal player strength:", new_hand)
-    print("Final boss strength:", new_boss)
-
-    chip_loss = 100
-    final_loss = player.reduce_loss(chip_loss)
-    print("\nOriginal chip loss:", chip_loss)
-    print("Final chip loss after shield:", final_loss)
