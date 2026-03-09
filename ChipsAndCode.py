@@ -1,4 +1,4 @@
-import pygame 
+#import pygame 
 import random
 from collections import Counter
 from itertools import combinations
@@ -33,7 +33,7 @@ class Card:
 
         self.rank = rank
         self.suit = suit
-        self.image = pygame.image.load(f"assets/cards/{rank}_of_{suit}.png")
+        #self.image = pygame.image.load(f"assets/cards/{rank}_of_{suit}.png")
 
 #class for the users player attributes
 class Player:
@@ -399,5 +399,145 @@ def evaluateHand(cards):
     
     #return the lower pair rank or high card if none of the above
     return pairType, PairKickers
+
+def printHand(cards):
+    return [(c.rank, c.suit) for c in cards]
+
+def showCards(cards):
+    return [f"({c.rank} of {c.suit})" for c in cards]
+
+#_____________________TEST LOGIC________________________________________
+if __name__ == "__main__":
+
+    # Test 1: straight
+    cards1 = [
+        Card("ace", "spades"),
+        Card("king", "hearts"),
+        Card("queen", "clubs"),
+        Card("jack", "diamonds"),
+        Card("10", "spades"),
+        Card("3", "hearts"),
+        Card("2", "clubs")
+    ]
+
+    score1, best1 = bestHandOf7(cards1)
+    print("TEST 1")
+    print("All cards:", showCards(cards1))
+    print("Best score:", score1)
+    print("Best hand:", showCards(best1))
+    print()
+
+    # Test 2: flush
+    cards2 = [
+        Card("ace", "hearts"),
+        Card("queen", "hearts"),
+        Card("9", "hearts"),
+        Card("7", "hearts"),
+        Card("3", "hearts"),
+        Card("king", "clubs"),
+        Card("2", "spades")
+    ]
+
+    score2, best2 = bestHandOf7(cards2)
+    print("TEST 2")
+    print("All cards:", showCards(cards2))
+    print("Best score:", score2)
+    print("Best hand:", showCards(best2))
+    print()
+
+    # Test 3: full house
+    cards3 = [
+        Card("ace", "spades"),
+        Card("ace", "hearts"),
+        Card("ace", "clubs"),
+        Card("king", "diamonds"),
+        Card("king", "spades"),
+        Card("4", "hearts"),
+        Card("2", "clubs")
+    ]
+
+    score3, best3 = bestHandOf7(cards3)
+    print("TEST 3")
+    print("All cards:", showCards(cards3))
+    print("Best score:", score3)
+    print("Best hand:", showCards(best3))
+    print()
+
+print("TEST 4")
+
+hand1 = [
+    Card("ace","spades"),
+    Card("ace","hearts"),
+    Card("9","clubs"),
+    Card("7","diamonds"),
+    Card("3","spades"),
+    Card("2","hearts"),
+    Card("4","clubs")
+]
+
+hand2 = [
+    Card("ace","diamonds"),
+    Card("ace","clubs"),
+    Card("9","hearts"),
+    Card("7","clubs"),
+    Card("2","spades"),
+    Card("3","hearts"),
+    Card("5","diamonds")
+]
+
+score1, best1 = bestHandOf7(hand1)
+score2, best2 = bestHandOf7(hand2)
+
+print("Hand1:", showCards(hand1), score1)
+print("Hand2:", showCards(hand2), score2)
+
+if score1 > score2:
+    print("Hand1 wins")
+elif score2 > score1:
+    print("Hand2 wins")
+else:
+    print("Tie")
+
+print()
+
+
+print("TEST 6")
+
+hand1 = [
+    Card("ace","spades"),
+    Card("ace","hearts"),
+    Card("king","clubs"),
+    Card("king","diamonds"),
+    Card("5","spades"),
+    Card("2","hearts"),
+    Card("4","clubs")
+]
+
+hand2 = [
+    Card("ace","diamonds"),
+    Card("ace","clubs"),
+    Card("king","hearts"),
+    Card("king","spades"),
+    Card("3","diamonds"),
+    Card("2","clubs"),
+    Card("4","hearts")
+]
+
+score1, best1 = bestHandOf7(hand1)
+score2, best2 = bestHandOf7(hand2)
+
+print("Hand1:", showCards(hand1), score1, HAND_TYPE[score1[0]])
+print("Best1:", showCards(best1))
+print("Hand2:", showCards(hand2), score2, HAND_TYPE[score2[0]])
+print("Best2:", showCards(best2))
+
+if score1 > score2:
+    print("Hand1 wins")
+elif score2 > score1:
+    print("Hand2 wins")
+else:
+    print("Tie")
+
+print()
       
 
