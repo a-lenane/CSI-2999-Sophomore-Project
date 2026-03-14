@@ -1,6 +1,7 @@
 import pygame
 import sys
 import random
+import ChipsAndCode
 
 pygame.init()
 
@@ -116,8 +117,8 @@ class Guard:
 # POKER SYSTEM
 # --------------------------------------------------
 
-suits = ["♠","♥","♦","♣"]
-ranks = ["2","3","4","5","6","7","8","9","10","J","Q","K","A"]
+suits = ["spades","hearts","diamonds","clubs"]
+ranks = ["2","3","4","5","6","7","8","9","10","jack","queen","king","ace"]
 
 class Card:
 
@@ -391,26 +392,39 @@ while running:
         screen.fill(TABLE_GREEN)
 
         pot_text = font.render(f"Pot: ${poker_game.pot}",True,WHITE)
-        screen.blit(pot_text,(460,80))
+        pot_rect = pygame.Surface.get_rect(pot_text)
+        pot_rect.center = (WIDTH/2,HEIGHT/10)
+        screen.blit(pot_text,pot_rect)
 
-        x=350
-        for card in poker_game.community:
+        card_height = HEIGHT/7
+        card_width = WIDTH/14
 
-            pygame.draw.rect(screen,WHITE,(x,200,60,90))
-            text=font.render(card.text(),True,(0,0,0))
-            screen.blit(text,(x+10,240))
-            x+=80
+        spacing_community = WIDTH/10 - WIDTH/140
+        total_width_community = 4 * spacing_community + card_width
+        x=WIDTH/2 - total_width_community/2
+        for card in poker_game.community:            
+            filename = f"ui/{card.rank}_of_{card.suit}.png"
+            card_sprite = pygame.image.load(filename)
+            card_sprite = pygame.transform.smoothscale(card_sprite, (card_width, card_height))
+            screen.blit(card_sprite, (x, HEIGHT/3))
 
-        x=420
+            x+=spacing_community
+
+        
+        spacing_player = WIDTH/8 - WIDTH/140
+        total_width_player = spacing_player + card_width
+        x=WIDTH/2 - total_width_player/2
         for card in poker_game.players[0].hand:
+            filename = f"ui/{card.rank}_of_{card.suit}.png"
+            card_sprite = pygame.image.load(filename)
+            card_sprite = pygame.transform.smoothscale(card_sprite, (card_width, card_height))
+            screen.blit(card_sprite, (x, HEIGHT*2/3))
+            x+=spacing_player
 
-            pygame.draw.rect(screen,WHITE,(x,450,60,90))
-            text=font.render(card.text(),True,(0,0,0))
-            screen.blit(text,(x+10,490))
-            x+=80
-
-        controls = font.render("C=Call   F=Fold   ESC=Leave",True,WHITE)
-        screen.blit(controls,(360,620))
+        controls_text = font.render("C=Call   F=Fold   ESC=Leave",True,WHITE)
+        controls_rect = pygame.Surface.get_rect(controls_text)
+        controls_rect.center = (WIDTH/2,HEIGHT*9/10)
+        screen.blit(controls_text,controls_rect)
 
     pygame.display.flip()
     clock.tick(60)
