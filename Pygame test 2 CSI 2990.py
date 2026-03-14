@@ -1,4 +1,5 @@
 import pygame
+from pygame.math import Vector2
 import sys
 
 pygame.init()
@@ -19,9 +20,27 @@ WHITE = (255, 255, 255)
 font = pygame.font.SysFont(None, 32)
 
 # Player
-player_size = 40
-player = pygame.Rect(100, 100, player_size, player_size)
-player_speed = 5
+
+
+class Player(pygame.sprite.Sprite):
+    def __init__(self, x, y, speed):
+        super().__init__()
+        self.image = pygame.Surface((30, 50))
+        self.image.fill((0, 128, 255))
+        self.rect = self.image.get_rect(center=(x, y))
+        self.pos = Vector2(x, y)
+        self.target = Vector2(x, y)
+        self.speed = speed
+
+    def update(self):
+        # Move towards target
+        if self.pos != self.target:
+            diff = self.target - self.pos
+            if diff.length() < self.speed:
+                self.pos = self.target
+            else:
+                self.pos += diff.normalize() * self.speed
+            self.rect.center = self.pos
 
 # Walls
 walls = [
@@ -37,17 +56,6 @@ tables = [
     pygame.Rect(600, 400, 120, 80),
 ]
 
-def move_player(dx, dy):
-    player.x += dx
-    for wall in walls:
-        if player.colliderect(wall):
-            player.x -= dx
-
-    player.y += dy
-    for wall in walls:
-        if player.colliderect(wall):
-            player.y -= dy
-
 def near_table():
     for table in tables:
         if player.colliderect(table.inflate(40, 40)):
@@ -61,6 +69,9 @@ while running:
     screen.fill(FLOOR)
 
     for event in pygame.event.get():
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            player.target = Vector2(event.pos) 
+
         if event.type == pygame.QUIT:
             running = False
 
