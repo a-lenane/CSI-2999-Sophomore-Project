@@ -2,11 +2,18 @@ import pygame
 import sys
 import random
 
-# ChipsAndCode import
-try:
-    import ChipsAndCode
-except ImportError:
-    pass 
+"""
+TODO:
+- hide dealer cards (diff card backs for diff dealers?)
+- menu to adjust bet amount (mayb  buttons like, bet 1x, bet 2x, bet 5x)
+- player money tracking
+- using ChipsAndCode to assess hands, can mayb show optimal hand to player during play
+- determine a winner (+ payout)
+- where get buffs (store?)
+- hide player cards untill click "deal" button
+- dynamic adjustments for each turn, such as "deal" being only option, then only "check" or "bet", then "check", "bet" or fold, with game finish handling
+- buff menu / info 
+"""
 
 pygame.init()
 
@@ -150,7 +157,7 @@ class PokerGame:
         self.dealer = PokerPlayer("Dealer", 0) # House hand
         self.deck = Deck()
         self.community, self.pot, self.phase = [], 0, "deal"
-        self.dealer_revealed = True # Toggle this later to False to hide cards
+        self.dealer_revealed = True # Toggle this later to false to hide cards
         self.deal()
 
     def deal(self):
