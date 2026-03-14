@@ -10,7 +10,7 @@ pygame.init()
 # --------------------------------------------------
 
 WIDTH, HEIGHT = 1000, 700
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 pygame.display.set_caption("Texas Hold'em: High Stakes")
 
 clock = pygame.time.Clock()
@@ -37,11 +37,15 @@ font = pygame.font.SysFont(None,32)
 
 class Button:
 
-    def __init__(self,text,y):
+    def __init__(self,text,y_offset):
         self.text=text
-        self.rect=pygame.Rect(WIDTH//2-150,y,300,60)
+        self.y_offset = y_offset
+        self.rect=pygame.Rect(0,0,300,60)
 
     def draw(self,surface):
+        
+        self.rect.centerx = WIDTH/2
+        self.rect.y = HEIGHT*3/9 + self.y_offset
 
         color = GOLD
         if self.rect.collidepoint(pygame.mouse.get_pos()):
@@ -240,9 +244,9 @@ NPC(400,500),
 NPC(700,200)
 ]
 
-start_story = Button("Start Story",250)
-free_play = Button("Free Play",330)
-quit_button = Button("Quit",410)
+start_story = Button("Start Story",HEIGHT/9)
+free_play = Button("Free Play",HEIGHT*2/9)
+quit_button = Button("Quit",HEIGHT*3/9)
 
 game_state = "menu"
 poker_game = None
@@ -264,9 +268,12 @@ def near_table():
 
 running = True
 
-while running:
-
+while running:           
     for event in pygame.event.get():
+
+        if event.type == pygame.VIDEORESIZE:
+            WIDTH, HEIGHT = event.size
+            screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 
         if event.type == pygame.QUIT:
             running=False
@@ -339,7 +346,9 @@ while running:
         screen.fill(TABLE_GREEN)
 
         title = title_font.render("TEXAS HOLD'EM",True,GOLD)
-        screen.blit(title,title.get_rect(center=(WIDTH//2,150)))
+        title_rect = pygame.Surface.get_rect(title)
+        title_rect.center = (WIDTH/2,HEIGHT*2/10)
+        screen.blit(title,title_rect)
 
         start_story.draw(screen)
         free_play.draw(screen)
@@ -358,12 +367,14 @@ while running:
         "Press ESC to return."
         ]
 
-        y=200
+        y = HEIGHT*2/8
         for line in lines:
 
             text=font.render(line,True,WHITE)
-            screen.blit(text,(WIDTH//2-text.get_width()//2,y))
-            y+=40
+            text_rect = pygame.Surface.get_rect(text)
+            text_rect.center = (WIDTH/2,y)
+            screen.blit(text,text_rect)
+            y+=HEIGHT/8
 
     elif game_state=="world":
 
@@ -385,7 +396,9 @@ while running:
 
         if near_table():
             text=font.render("Press E to Play Poker",True,WHITE)
-            screen.blit(text,(WIDTH//2-120,HEIGHT-80))
+            text_rect = pygame.Surface.get_rect(text)
+            text_rect.center = (WIDTH/2,HEIGHT*9/10)
+            screen.blit(text,text_rect)
 
     elif game_state=="poker":
 
@@ -396,8 +409,10 @@ while running:
         pot_rect.center = (WIDTH/2,HEIGHT/10)
         screen.blit(pot_text,pot_rect)
 
-        card_height = HEIGHT/7
-        card_width = WIDTH/14
+
+        scalar = min(HEIGHT,WIDTH)/20
+        card_height = scalar*3.5
+        card_width = scalar*2.5
 
         spacing_community = WIDTH/10 - WIDTH/140
         total_width_community = 4 * spacing_community + card_width
