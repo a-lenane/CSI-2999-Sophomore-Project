@@ -13,6 +13,8 @@ TODO:
 - hide player cards untill click "deal" button
 - dynamic adjustments for each turn, such as "deal" being only option, then only "check" or "bet", then "check", "bet" or fold, with game finish handling
 - buff menu / info 
+- dealer sprites when open table
+- change back to full dynamic card positions vs using fixed pixel offset
 """
 
 pygame.init()
