@@ -4,7 +4,7 @@ from map import Map
 from player import Player
 import npc
 from camera import Camera
-import GAMELOGIC # TODO setup for 'entering' a game with this document
+import GAMELOGIC # TODO setup for 'entering' a game with this file
 
 pygame.init()
 

@@ -21,25 +21,26 @@ def deck_cardpick(deck):
     card = deck.pop()
     return card, deck
 
-def dealer_cards(difficulty, deck):
-    dealer_hand = []
+def opponent_cards(difficulty, deck):
+    opponent_hand = []
     
     if difficulty == "easy":
         i = 0
         while i < 2:
             card, deck = deck_cardpick(deck) 
-            dealer_hand.append(card)
+            opponent_hand.append(card)
             i += 1
             
     elif difficulty == "medium":
         #TODO 
-        # from DifficultiesCodeAndChips import medium_ai
+        # only implementation here is to make the 'dealer' give the opponent better cards using some kind of algorithm from DifficultiesCodeAndChips.py
+        # can pass pool cards to the 'dealer' to help him pick better cards or smth from main() if difficulty is selected prior to here <--- TODO add difficulty selection and pass it from main.py to here
         pass 
     elif difficulty == "hard":
         #TODO 
         pass
 
-    return dealer_hand, deck
+    return opponent_hand, deck
   
 def pool_cards(deck):
     pool_cards = []
@@ -65,10 +66,10 @@ def player_hand():
 # I might make this the shop or 'control' for what buffs are active, using data from map.py or main.py to determine what buffs the player has active. then, can use if statements for if buff do xyz directly in functions
 # ex: i will implement forsight, where if buff is active player will be allowed to see the top 5 cards of the pool draw pile after the first 3 are drawn
 
-def score_method(player_hand, dealer_hand, pool_cards):
+def score_method(player_hand, opponent_hand, pool_cards):
 
     final_player_hand = player_hand + pool_cards
-    final_dealer_hand = dealer_hand + pool_cards
+    final_opponent_hand = opponent_hand + pool_cards
 
     from ChipsAndCode import bestHandOf7
 
@@ -102,14 +103,14 @@ def main():
 
     """game loop: TODO
     - phase 1: draw pool cards (keeping hidden untill needed!)
-    - phase 2: draw dealer + player cards 
-    - phase 3: call/raise/fold 
+    - phase 2: draw opponent + player cards 
+    - phase 3: call/raise/fold (player + opponent (AI LOGIC))
     - next: reveal first 3 pool cards
-    - next: call/raise/fold 
+    - next: call/raise/fold (player + opponent (AI LOGIC))
     - next: reveal next pool card
-    - next: check/raise
+    - next: check/raise (player + opponent (AI LOGIC))
     - next: reveal last pool card
-    - next: call/raise/fold
+    - next: call/raise/fold (player + opponent (AI LOGIC))
     - last: check hands and determine winner. pot goes to winner. 
 
     - additionally: deal with pot, deal with abilities, deal with dialouge.

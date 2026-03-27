@@ -1,3 +1,7 @@
+# idk how this code really works, but the dialouge can be moved to another file with this one strictly handling how to make AI opponents behave. 
+# this code should ultimately determine the opponents behavior to check/call/fold/etc based on pot size, its hand + pool, player behavior / dialouge, and difficulty selected (inputs from gamelogic.py)
+
+
 import random
 
 # EASY DIFFICULTY
