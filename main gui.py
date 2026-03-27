@@ -5,15 +5,19 @@ import random
 """
 TODO:
 - hide dealer cards (diff card backs for diff dealers?)
-- menu to adjust bet amount (mayb  buttons like, bet 1x, bet 2x, bet 5x)
+- menu to adjust bet amount (up/down arrow above/below ebt button?)
 - player money tracking
-- using ChipsAndCode to assess hands, can mayb show optimal hand to player during play
+- ChipsAndCode to assess hands, can mayb show optimal hand to player during play
 - determine a winner (+ payout)
 - where get buffs (store?)
+- vip lounge with final boss
 - hide player cards untill click "deal" button
 - dynamic adjustments for each turn, such as "deal" being only option, then only "check" or "bet", then "check", "bet" or fold, with game finish handling
 - buff menu / info 
-- dealer sprites when open table
+- dealer sprites / dialouge when open table
+- diff dealer diff tables
+- progression: unlock new areas / new dealers when beat first dealer (maybe can only access a high roller table with x amount of monye or smth)
+- dealer ai?
 - change back to full dynamic card positions vs using fixed pixel offset
 """
 
