@@ -1,5 +1,8 @@
 import random
-import ChipsAndCode
+import ChipsAndCode # TODO implementation using this file 
+import buffs # TODO implementation using this file 
+import BossReactions # TODO implementation using this file 
+import DifficultiesCodeAndChips # TODO implementation using this file 
 
 SUITS = ["spades", "hearts", "diamonds", "clubs"]
 RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "jack", "queen", "king", "ace"]
@@ -57,7 +60,7 @@ def player_hand():
         i += 1
     return player_hand, deck
 
-# def ability_track():
+# def ability_track(): (using buffs.py?)
 
 def score_method(player_hand, dealer_hand, pool_cards):
 
