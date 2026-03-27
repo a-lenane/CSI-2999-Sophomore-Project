@@ -60,7 +60,9 @@ def player_hand():
         i += 1
     return player_hand, deck
 
-# def ability_track(): (using buffs.py?)
+# def ability_track(): TODO! buffs.py needs to be directly implemented in this code! not just a isolated function, but can use if statements directly in other functions to check for buff purposes!)
+# I might make this the shop or 'control' for what buffs are active, using data from map.py or main.py to determine what buffs the player has active. then, can use if statements for if buff do xyz directly in functions
+# ex: i will implement forsight, where if buff is active player will be allowed to see the top 5 cards of the pool draw pile after the first 3 are drawn
 
 def score_method(player_hand, dealer_hand, pool_cards):
 
@@ -77,11 +79,11 @@ def score_method(player_hand, dealer_hand, pool_cards):
 
 
 def fold_method():
-    #gui
+    #gui (does nothing anyways ig)
     pass
 
 def bet_method():
-    #gui
+    #gui TODO
     pass
 
 def main():
@@ -97,7 +99,7 @@ def main():
         
         False
 
-    """game loop:
+    """game loop: TODO
     - phase 1: draw pool cards (keeping hidden untill needed!)
     - phase 2: draw dealer + player cards 
     - phase 3: call/raise/fold 

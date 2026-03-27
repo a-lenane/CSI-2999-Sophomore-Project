@@ -1,3 +1,9 @@
+# buffs.py needs to be directly implemented in GAMELOGIC.py
+# this file should be the shop or 'control' for what buffs are active, using data from map.py or main.py to determine what buffs the player has active and passing it to gamelogic.py. then, can use if statements for if buff do xyz directly in functions inside gamelogic directly
+# ex: i will implement forsight, where if buff is active player will be allowed to see the top 5 cards of the pool draw pile after the first 3 are drawn
+
+
+
 import random
 
 class Player:
