@@ -32,10 +32,11 @@ def dealer_cards(difficulty, deck):
             i += 1
             
     elif difficulty == "medium":
-        #todo
+        #TODO 
+        # from DifficultiesCodeAndChips import medium_ai
         pass 
     elif difficulty == "hard":
-        #todo
+        #TODO 
         pass
 
     return dealer_hand, deck
