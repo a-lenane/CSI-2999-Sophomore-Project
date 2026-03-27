@@ -1,6 +1,6 @@
 import random
 import ChipsAndCode # TODO implementation using this file 
-import buffs # TODO implementation using this file 
+import Buffs # TODO implementation using this file 
 import BossReactions # TODO implementation using this file 
 import DifficultiesCodeAndChips # TODO implementation using this file 
 
