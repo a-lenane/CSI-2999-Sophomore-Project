@@ -1,5 +1,6 @@
 import pygame
 import random
+import os
 from PokerLogic import Deck, Card, bestHandOf7, HAND_TYPE, RANK_VALUE
 from DifficultiesCodeAndChips import easy_ai, medium_ai, hard_ai, evaluate_hand_strength
 from DialogueCasino import get_dialogue
@@ -13,7 +14,11 @@ class PokerGame:
         self.small_font = pygame.font.SysFont("Arial", 18)
         self.dialogue_font = pygame.font.SysFont("Arial", 20, italic=True)
         
-        # game state
+        # Load card images
+        self.card_images = {}
+        self.load_card_images()
+        
+        # Game state
         self.deck = Deck()
         self.player_hand = [self.deck.drawCard(), self.deck.drawCard()]
         self.boss_hand = [self.deck.drawCard(), self.deck.drawCard()]
@@ -28,11 +33,11 @@ class PokerGame:
         self.winner = None
         self.player_folded = False
         
-        # betting amounts
+        # Betting amounts
         self.bet_amounts = [50, 100, 200, 500]
         self.selected_bet_index = 0
         
-        # dialogue/bluff system
+        # Dialogue/bluff system
         self.bluff_options = [
             ("Bluff: 'I've got a monster hand!'", "bluff"),
             ("Intimidate: 'You're out of your league!'", "intimidate"),
@@ -44,10 +49,10 @@ class PokerGame:
         self.bluff_result = None
         self.bluff_timer = 0
         
-        # player aggression tracking for hard AI
+        # Player aggression tracking for hard AI
         self.player_aggressive_count = 0
         
-        # ante - take chips to join
+        # Ante - take chips to join
         ante = 50
         self.player_profile.chips -= ante
         self.pot += ante * 2
@@ -59,14 +64,58 @@ class PokerGame:
         self.btn_bluff = pygame.Rect(520, 500, 120, 40)
         self.btn_leave = pygame.Rect(660, 500, 120, 40)
         
-        # bluff menu buttons
+        # Bluff menu buttons
         self.bluff_buttons = []
         for i, (text, _) in enumerate(self.bluff_options):
             self.bluff_buttons.append(pygame.Rect(200, 250 + i * 50, 500, 40))
 
+    def load_card_images(self):
+        """Load all card images from the ui folder."""
+        card_size = (70, 100)
+        suits = ["spades", "hearts", "diamonds", "clubs"]
+        ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "jack", "queen", "king", "ace"]
+        
+        # Try to load card back
+        back_path = os.path.join("ui", "card_back.png")
+        if os.path.exists(back_path):
+            try:
+                back_img = pygame.image.load(back_path)
+                self.card_back = pygame.transform.scale(back_img, card_size)
+            except:
+                self.card_back = None
+        else:
+            self.card_back = None
+        
+        # Load each card
+        for suit in suits:
+            for rank in ranks:
+                filename = f"{rank}_of_{suit}.png"
+                filepath = os.path.join("ui", filename)
+                if os.path.exists(filepath):
+                    try:
+                        img = pygame.image.load(filepath)
+                        self.card_images[(suit, rank)] = pygame.transform.scale(img, card_size)
+                    except:
+                        self.card_images[(suit, rank)] = None
+                else:
+                    self.card_images[(suit, rank)] = None
+        
+        # Create fallback card back if not loaded
+        if self.card_back is None:
+            self.card_back = pygame.Surface(card_size)
+            self.card_back.fill((180, 0, 0))
+            pygame.draw.rect(self.card_back, (255, 255, 255), self.card_back.get_rect(), 3)
+
+    def get_card_image(self, card):
+        """Get the surface for a Card object, or None if not loaded."""
+        if card is None:
+            return None
+        suit = card.suit.lower()
+        rank = card.rank.lower()
+        return self.card_images.get((suit, rank))
+
     def get_hand_strength(self, hand, visible_count):
         """Get hand strength using the evaluation function"""
-        # convert Card objects to tuple format for evaluate_hand_strength
         hand_tuples = [(c.suit.lower(), c.rank.lower()) for c in hand]
         pool_tuples = [(c.suit.lower(), c.rank.lower()) for c in self.community_cards]
         return evaluate_hand_strength(hand_tuples, pool_tuples, visible_count)
@@ -106,7 +155,7 @@ class PokerGame:
 
     def advance_stage(self):
         if self.stage == 0:
-            # deal flop (3 cards)
+            # Deal flop (3 cards)
             for _ in range(3):
                 self.community_cards.append(self.deck.drawCard())
             self.stage = 1
@@ -114,14 +163,14 @@ class PokerGame:
             self.player_contribution = 0
             self.boss_contribution = 0
         elif self.stage == 1:
-            # deal turn
+            # Deal turn
             self.community_cards.append(self.deck.drawCard())
             self.stage = 2
             self.current_bet = 0
             self.player_contribution = 0
             self.boss_contribution = 0
         elif self.stage == 2:
-            # deal river
+            # Deal river
             self.community_cards.append(self.deck.drawCard())
             self.stage = 3
             self.current_bet = 0
@@ -133,33 +182,33 @@ class PokerGame:
             self.resolve_showdown()
 
     def resolve_showdown(self):
-        # evaluate hands
+        # Evaluate hands
         player_cards = self.player_hand + self.community_cards
         boss_cards = self.boss_hand + self.community_cards
         
         player_score, player_best = bestHandOf7(player_cards)
         boss_score, boss_best = bestHandOf7(boss_cards)
         
-        # player buffs
-        player_strength = player_score / 8.0
-        boss_strength = boss_score / 8.0
+        # Apply player buffs
+        player_strength = player_score / 8.0 if isinstance(player_score, (int, float)) else player_score[0] / 8.0
+        boss_strength = boss_score / 8.0 if isinstance(boss_score, (int, float)) else boss_score[0] / 8.0
         player_strength, boss_strength = self.player_profile.apply_buffs(player_strength, boss_strength)
         
         if player_strength > boss_strength:
             self.winner = "Player"
             self.player_profile.chips += self.pot
-            self.result_text = f"You win! ({HAND_TYPE.get(player_score, 'High Card')} beats {HAND_TYPE.get(boss_score, 'High Card')}) +{self.pot} chips!"
+            self.result_text = f"You win! (+{self.pot} chips)"
             
-            # award buff if boss beaten for first time
+            # Award buff if boss beaten for first time
             buff_gained = self.player_profile.award_buff_for_boss(self.difficulty)
             if buff_gained:
                 self.result_text += f"\nGained buff: {buff_gained}!"
         elif boss_strength > player_strength:
             self.winner = "Boss"
             loss = self.player_profile.reduce_loss(self.pot)
-            self.result_text = f"Boss wins! ({HAND_TYPE.get(boss_score, 'High Card')} beats {HAND_TYPE.get(player_score, 'High Card')}) You lost {loss} chips."
+            self.result_text = f"Boss wins! You lost {loss} chips."
         else:
-            # tie - split pot
+            # Tie - split pot
             split = self.pot // 2
             self.player_profile.chips += split
             self.result_text = f"Tie! Pot split. You get {split} chips."
@@ -177,7 +226,7 @@ class PokerGame:
                 success_chance = 0.7
             if random.random() < success_chance:
                 self.bluff_result = "success"
-                # opponent may fold
+                # Opponent may fold
                 if random.random() < 0.5:
                     self.winner = "Player"
                     self.game_over = True
@@ -193,7 +242,7 @@ class PokerGame:
                 success_chance = 0.6
             if random.random() < success_chance:
                 self.bluff_result = "success"
-                # reduce opponent's next bet
+                # Reduce opponent's next bet
                 self.current_bet = max(20, self.current_bet // 2)
             else:
                 self.bluff_result = "fail"
@@ -202,12 +251,12 @@ class PokerGame:
             success_chance = 0.3
             if random.random() < success_chance:
                 self.bluff_result = "success"
-                # opponent checks instead of raising
+                # Opponent checks instead of raising
                 pass
             else:
                 self.bluff_result = "fail"
         
-        self.bluff_timer = 60  # show result for 1 second
+        self.bluff_timer = 60  # Show result for 1 second
         self.showing_bluff_menu = False
 
     def update(self, events):
@@ -267,7 +316,7 @@ class PokerGame:
                 elif event.key == pygame.K_ESCAPE:
                     self.showing_bluff_menu = False
         
-        # update bluff timer
+        # Update bluff timer
         if self.bluff_timer > 0:
             self.bluff_timer -= 1
             if self.bluff_timer == 0:
@@ -276,26 +325,30 @@ class PokerGame:
         return "CONTINUE"
 
     def draw_card(self, x, y, card=None, hidden=False):
+        """Draw a card at (x,y). If hidden, draw card back. If card is None, draw nothing."""
         rect = pygame.Rect(x, y, 70, 100)
-        surface = pygame.Surface((70, 100), pygame.SRCALPHA)
         
         if hidden:
-            surface.fill((180, 0, 0, 255))
-            pygame.draw.rect(surface, (255, 255, 255), surface.get_rect(), 3)
-        elif card:
-            surface.fill((255, 255, 255, 255))
-            pygame.draw.rect(surface, (0, 0, 0), surface.get_rect(), 2)
-            color = (255, 0, 0) if card.suit in ["Hearts", "Diamonds"] else (0, 0, 0)
-            rank_text = card.rank[:2] if card.rank != "10" else "10"
-            text = self.font.render(rank_text, True, color)
-            surface.blit(text, (5, 5))
-            suit_text = self.small_font.render(card.suit[0], True, color)
-            surface.blit(suit_text, (5, 70))
-        
-        self.screen.blit(surface, (x, y))
+            self.screen.blit(self.card_back, (x, y))
+        elif card is not None:
+            img = self.get_card_image(card)
+            if img is not None:
+                self.screen.blit(img, (x, y))
+            else:
+                # Fallback to rectangle drawing
+                surface = pygame.Surface((70, 100), pygame.SRCALPHA)
+                surface.fill((255, 255, 255, 255))
+                pygame.draw.rect(surface, (0, 0, 0), surface.get_rect(), 2)
+                color = (255, 0, 0) if card.suit in ["Hearts", "Diamonds"] else (0, 0, 0)
+                rank_text = card.rank[:2] if card.rank != "10" else "10"
+                text = self.font.render(rank_text, True, color)
+                surface.blit(text, (5, 5))
+                suit_text = self.small_font.render(card.suit[0], True, color)
+                surface.blit(suit_text, (5, 70))
+                self.screen.blit(surface, (x, y))
 
     def draw(self):
-        # draw green felt table
+        # Draw green felt table
         self.screen.fill((34, 139, 34))
         
         # Info panel
@@ -307,29 +360,29 @@ class PokerGame:
         self.screen.blit(pot_text, (400 - pot_text.get_width() // 2, info_y))
         self.screen.blit(bet_text, (750 - bet_text.get_width(), info_y))
         
-        # draw buffs
+        # Draw buffs
         buff_y = 40
         for i, buff in enumerate(self.player_profile.buffs):
             buff_surf = self.small_font.render(f"✓ {buff}", True, (100, 255, 100))
             self.screen.blit(buff_surf, (10, buff_y + i * 20))
         
-        # draw Boss Hand (hidden until showdown)
+        # Draw Boss Hand (hidden until showdown)
         self.draw_card(350, 60, self.boss_hand[0] if self.game_over else None, hidden=not self.game_over)
         self.draw_card(430, 60, self.boss_hand[1] if self.game_over else None, hidden=not self.game_over)
         
-        # draw Community Cards
+        # Draw Community Cards
         pool_x = 220
         for i, card in enumerate(self.community_cards):
             self.draw_card(pool_x + (i * 80), 220, card)
-        # draw empty slots for remaining cards
+        # Draw empty slots for remaining cards
         for i in range(len(self.community_cards), 5):
             self.draw_card(pool_x + (i * 80), 220, hidden=True)
         
-        # draw Player Hand
+        # Draw Player Hand
         self.draw_card(350, 380, self.player_hand[0])
         self.draw_card(430, 380, self.player_hand[1])
         
-        # draw buttons
+        # Draw buttons
         buttons = [
             (self.btn_call, f"Call {self.get_call_amount()}", (50, 50, 200)),
             (self.btn_raise, f"Raise {self.bet_amounts[self.selected_bet_index]}", (200, 50, 50)),
@@ -340,13 +393,13 @@ class PokerGame:
         
         for rect, text, color in buttons:
             if rect == self.btn_raise:
-                # draw raise amount selector
+                # Draw raise amount selector
                 pygame.draw.rect(self.screen, color, rect, border_radius=5)
                 pygame.draw.rect(self.screen, (255, 255, 255), rect, 2, border_radius=5)
                 text_surf = self.font.render(text, True, (255, 255, 255))
                 self.screen.blit(text_surf, (rect.x + (rect.width - text_surf.get_width()) // 2,
                                             rect.y + (rect.height - text_surf.get_height()) // 2))
-                # draw small arrows for bet selection
+                # Draw small arrows for bet selection
                 up_arrow = pygame.Rect(rect.right - 25, rect.y + 5, 20, 15)
                 down_arrow = pygame.Rect(rect.right - 25, rect.y + rect.height - 20, 20, 15)
                 pygame.draw.polygon(self.screen, (255, 255, 255), [(up_arrow.centerx, up_arrow.y + 3), 
@@ -360,14 +413,14 @@ class PokerGame:
                 self.screen.blit(text_surf, (rect.x + (rect.width - text_surf.get_width()) // 2,
                                             rect.y + (rect.height - text_surf.get_height()) // 2))
         
-        # draw bluff result
+        # Draw bluff result
         if self.bluff_result:
             result_color = (100, 255, 100) if self.bluff_result == "success" else (255, 100, 100)
             result_text = "Bluff Successful!" if self.bluff_result == "success" else "Bluff Failed!"
             result_surf = self.font.render(result_text, True, result_color)
             self.screen.blit(result_surf, (400 - result_surf.get_width() // 2, 450))
         
-        # draw bluff menu if active
+        # Draw bluff menu if active
         if self.showing_bluff_menu:
             overlay = pygame.Surface((900, 600), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 200))
@@ -383,13 +436,13 @@ class PokerGame:
                 text_surf = self.font.render(text, True, (255, 255, 255))
                 self.screen.blit(text_surf, (btn.x + 10, btn.y + 10))
         
-        # game Over Overlay
+        # Game Over Overlay
         if self.game_over:
             overlay = pygame.Surface((900, 600), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 180))
             self.screen.blit(overlay, (0, 0))
             
-            # draw result text with word wrap
+            # Draw result text with word wrap
             words = self.result_text.split(' ')
             lines = []
             current_line = ""
