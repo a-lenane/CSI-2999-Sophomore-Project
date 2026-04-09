@@ -1,63 +1,77 @@
-# buffs.py needs to be directly implemented in GAMELOGIC.py
-# this file should be the shop or 'control' for what buffs are active, using data from map.py or main.py to determine what buffs the player has active and passing it to gamelogic.py. then, can use if statements for if buff do xyz directly in functions inside gamelogic directly
-# ex: i will implement forsight, where if buff is active player will be allowed to see the top 5 cards of the pool draw pile after the first 3 are drawn by putting a simple if statement in the pool_cards function to print the next 5 cards of the deck/pool
-
-
-
 import random
 
 class Player:
     def __init__(self, name):
         self.name = name
-        self.points = 0
+        self.chips = 500  # Starting chips
         self.buffs = []
         self.second_chance_used = False
+        self.beaten_bosses = []  # Track which difficulties beaten
 
     def add_buff(self, buff_name):
-        self.buffs.append(buff_name)
-        print(f"{self.name} gained buff: {buff_name}")
+        if buff_name not in self.buffs:
+            self.buffs.append(buff_name)
+            print(f"{self.name} gained buff: {buff_name}")
+            return True
+        return False
+
+    def has_buff(self, buff_name):
+        return buff_name in self.buffs
 
     def apply_buffs(self, hand_strength, boss_strength=None):
         modified_strength = hand_strength
 
-        print(f"\nBase hand strength: {hand_strength}")
-
         for buff in self.buffs:
-
             if buff == "Lucky Draw":
                 modified_strength += 0.1
-                print("✨ Lucky Draw increases hand strength!")
-
             elif buff == "High Roller":
                 modified_strength += 0.15
-                print("High Roller boosts confidence!")
-
             elif buff == "Bluff Master":
                 if random.random() < 0.25:
                     modified_strength += 0.2
-                    print("Bluff Master activated!")
-
             elif buff == "Second Chance":
                 if modified_strength < 0.4 and not self.second_chance_used:
                     modified_strength = random.uniform(0.4, 0.7)
                     self.second_chance_used = True
-                    print("Second Chance activated! Hand rerolled!")
-
             elif buff == "All-In Fury":
                 if modified_strength > 0.7:
                     modified_strength += 0.2
-                    print("All-In Fury activated! Big power boost!")
-
             elif buff == "Intimidation" and boss_strength is not None:
                 boss_strength -= 0.1
-                print("Intimidation lowers boss confidence!")
 
         modified_strength = min(modified_strength, 1.0)
-
         return modified_strength, boss_strength
 
     def reduce_loss(self, chip_loss):
         if "Chip Shield" in self.buffs:
-            print("Chip Shield reduced chip loss!")
             return int(chip_loss * 0.7)
         return chip_loss
+
+    def can_play_table(self, difficulty):
+        """Check if player has enough chips and has beaten previous difficulties"""
+        requirements = {"easy": 100, "medium": 300, "hard": 800}
+        required_chips = requirements.get(difficulty, 100)
+        
+        if self.chips < required_chips:
+            return False, f"Need {required_chips} chips to play at this table! (You have {self.chips})"
+        
+        # Must beat easy before medium, medium before hard
+        if difficulty == "medium" and "easy" not in self.beaten_bosses:
+            return False, "You must beat the Easy boss first!"
+        if difficulty == "hard" and "medium" not in self.beaten_bosses:
+            return False, "You must beat the Medium boss first!"
+        
+        return True, "Ready to play!"
+
+    def award_buff_for_boss(self, difficulty):
+        """Give buff reward for beating a boss"""
+        buff_rewards = {
+            "easy": "Lucky Draw",
+            "medium": "High Roller", 
+            "hard": "All-In Fury"
+        }
+        if difficulty in buff_rewards and difficulty not in self.beaten_bosses:
+            self.add_buff(buff_rewards[difficulty])
+            self.beaten_bosses.append(difficulty)
+            return buff_rewards[difficulty]
+        return None
