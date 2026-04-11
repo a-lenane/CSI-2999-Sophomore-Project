@@ -262,7 +262,7 @@ class ActiveGame:
 
             self.currentPlayer.chips += self.table.pot
 
-            print(f"{self.currentPlayer.name} wins with {HAND_TYPE[playerHandRank]}")
+            print(f"{self.currentPlayer.name} wins with {HAND_TYPE[playerHandRank[0]]}")
 
             self.table.pot = 0
 
@@ -273,7 +273,7 @@ class ActiveGame:
 
             self.boss.chips += self.table.pot
 
-            print(f"{self.boss.name} wins with {HAND_TYPE[bossHandRank]}")
+            print(f"{self.boss.name} wins with {HAND_TYPE[bossHandRank[0]]}")
 
             self.table.pot = 0
             
@@ -286,7 +286,8 @@ class ActiveGame:
             self.currentPlayer.chips += splitPot
             self.boss.chips += splitPot
 
-            print(f"tie with {HAND_TYPE[playerHandRank]}")
+            # FIX: playerHandRank is a tuple, take first element for HAND_TYPE key
+            print(f"tie with {HAND_TYPE[playerHandRank[0]]}")
 
             self.table.pot = 0
 
@@ -428,7 +429,7 @@ def evaluateHand(cards):
     isFlush = flush(cards)
 
     if straight is not None and isFlush:
-        return 8
+        return 8 #, [straight]
     
     #variable to check if four of a kind or fullhouse
     pairType, PairKickers = evaluatePairs(cards)
@@ -588,5 +589,3 @@ else:
     print("Tie")
 
 print()
-      
-

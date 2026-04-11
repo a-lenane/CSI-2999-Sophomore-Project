@@ -39,10 +39,13 @@ WALL = (20, 20, 20)
 PLAYER_COLOR = (200, 50, 50)
 NPC_COLOR = (200, 200, 50)
 GUARD_COLOR = (50, 120, 220)
+CARD_BACK_COLOR = (100, 50, 0)
+BOSS_MSG_BG = (0, 0, 0, 180)  # semi-transparent black
 
 # FONTS
 title_font = pygame.font.SysFont("arialblack", 80)
 font = pygame.font.SysFont(None, 32)
+boss_font = pygame.font.SysFont("arialblack", 28)
 
 # --------------------------------------------------
 # UI & OBJECT CLASSES
@@ -134,6 +137,32 @@ class Guard:
         pygame.draw.rect(surface, GUARD_COLOR, self.rect)
 
 # --------------------------------------------------
+# ANIMATION SYSTEM FOR CARD DEALING
+# --------------------------------------------------
+class CardAnimation:
+    def __init__(self, card_image, from_pos, to_pos, speed=0.1):
+        self.image = card_image
+        self.from_pos = pygame.math.Vector2(from_pos)
+        self.to_pos = pygame.math.Vector2(to_pos)
+        self.progress = 0.0
+        self.speed = speed
+
+    def update(self):
+        self.progress += self.speed
+        if self.progress >= 1.0:
+            self.progress = 1.0
+            return True
+        return False
+
+    def get_current_pos(self):
+        return self.from_pos.lerp(self.to_pos, self.progress)
+
+    def draw(self, surface):
+        pos = self.get_current_pos()
+        rect = self.image.get_rect(center=pos)
+        surface.blit(self.image, rect)
+
+# --------------------------------------------------
 # INITIALIZATION & RESIZING
 # --------------------------------------------------
 player = WorldPlayer()
@@ -146,15 +175,65 @@ start_story = Button("Start Story", 0.5, 0.4, 0.3, 0.08)
 free_play = Button("Free Play", 0.5, 0.55, 0.3, 0.08)
 quit_button = Button("Quit", 0.5, 0.7, 0.3, 0.08)
 
-# Poker Buttons
+# Poker Buttons 
 checkCall_btn = Button("Check/Call", 0.2, 0.9, 0.15, 0.06)
-raise_btn = Button(f"raise (currentRaiseAmount)", 0.4, 0.9, 0.15, .06)
+raise_btn = Button("Raise (50$)", 0.4, 0.9, 0.15, 0.06)
 fold_btn = Button("Fold", 0.6, 0.9, 0.15, 0.06)
-leave_btn = Button("Leave", 0.7, 0.9, 0.15, 0.06)
+leave_btn = Button("Leave", 0.8, 0.9, 0.15, 0.06)
 
+# Animation globals
+deck_pos = (WIDTH * 0.1, HEIGHT * 0.5)
+active_animations = []
+animating = False
+animating_card_keys = set()  # (type, index) where type = 'human', 'boss', 'community'
+
+# Boss message system
+boss_message_text = None
+boss_message_timer = 0  # milliseconds remaining
+
+def set_boss_message(msg):
+    global boss_message_text, boss_message_timer
+    boss_message_text = msg
+    # want to implement a delay for this to make boss have to "think" about its decisions
+    boss_message_timer = 3000
+
+def update_boss_message(dt_ms):
+    global boss_message_timer, boss_message_text
+    if boss_message_timer > 0:
+        boss_message_timer -= dt_ms
+        if boss_message_timer <= 0:
+            boss_message_text = None
+
+def draw_boss_message(surface):
+    if boss_message_text:
+        # Create a semi-transparent background surface
+        msg_surf = boss_font.render(boss_message_text, True, GOLD)
+        padding = 15
+        bg_rect = msg_surf.get_rect().inflate(padding*2, padding)
+        bg_surf = pygame.Surface(bg_rect.size, pygame.SRCALPHA)
+        bg_surf.fill((0, 0, 0, 180))
+        # Position above dealer's hand
+        x = WIDTH * 0.15
+        y = HEIGHT * 0.05
+        bg_rect.topleft = (x, y)
+        screen.blit(bg_surf, bg_rect)
+        screen.blit(msg_surf, msg_surf.get_rect(center=bg_rect.center))
+
+# Card back image
+def get_card_back_image():
+    scalar = min(HEIGHT, WIDTH) / 20
+    card_w, card_h = int(scalar * 2.5), int(scalar * 3.5)
+    back_surf = pygame.Surface((card_w, card_h))
+    back_surf.fill(CARD_BACK_COLOR)
+    pygame.draw.rect(back_surf, GOLD, back_surf.get_rect(), 3, border_radius=5)
+    pygame.draw.line(back_surf, (200,150,100), (0,0), (card_w, card_h), 2)
+    pygame.draw.line(back_surf, (200,150,100), (card_w,0), (0, card_h), 2)
+    return back_surf
+
+card_back_img = get_card_back_image()
 
 def recalculate_elements():
-    global walls, tables
+    global walls, tables, deck_pos, card_back_img
     t = 40
     walls = [pygame.Rect(0,0,WIDTH,t), pygame.Rect(0,0,t,HEIGHT),
              pygame.Rect(0,HEIGHT-t,WIDTH,t), pygame.Rect(WIDTH-t,0,t,HEIGHT)]
@@ -163,6 +242,8 @@ def recalculate_elements():
     player.reposition()
     for n in npcs: n.reposition()
     for g in guards: g.reposition()
+    deck_pos = (WIDTH * 0.1, HEIGHT * 0.5)
+    card_back_img = get_card_back_image()
 
 recalculate_elements()
 game_state, poker_game = "menu", None
@@ -172,11 +253,114 @@ def near_table():
         if player.rect.colliderect(table.inflate(40, 40)): return True
     return False
 
+def load_card_image(card):
+    try:
+        img = pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png")
+        scalar = min(HEIGHT, WIDTH) / 20
+        card_w, card_h = int(scalar * 2.5), int(scalar * 3.5)
+        return pygame.transform.smoothscale(img, (card_w, card_h))
+    except:
+        return None
+
+def get_target_position_for_card(card, card_index, card_type):
+    scalar = min(HEIGHT, WIDTH) / 20
+    card_w, card_h = int(scalar * 2.5), int(scalar * 3.5)
+    spacing = card_w + 10
+
+    if card_type == 'human':
+        x_hand = WIDTH/2 - (2 * spacing) / 2
+        return (x_hand + card_index * spacing + card_w/2, HEIGHT * 0.65 + card_h/2)
+    elif card_type == 'boss':
+        dealer_x = 60
+        dealer_y = HEIGHT * 0.12
+        return (dealer_x + card_index * spacing + card_w/2, dealer_y + card_h/2)
+    elif card_type == 'community':
+        total_community = len(poker_game.table.communityCards) if poker_game else 0
+        x_comm = WIDTH/2 - (total_community * spacing) / 2
+        return (x_comm + card_index * spacing + card_w/2, HEIGHT/2)
+    return (WIDTH//2, HEIGHT//2)
+
+# Store previous card states
+prev_human_cards = []
+prev_boss_cards = []
+prev_community_cards = []
+
+def create_animation_for_card(card, idx, ctype):
+    global active_animations, animating_card_keys, animating
+    if ctype == 'boss':
+        img = card_back_img
+    else:
+        img = load_card_image(card)
+        if img is None:
+            return
+    to_pos = get_target_position_for_card(card, idx, ctype)
+    anim = CardAnimation(img, deck_pos, to_pos, speed=0.08)
+    active_animations.append(anim)
+    animating_card_keys.add((ctype, idx))
+    animating = True
+
+def detect_and_animate_new_cards():
+    global prev_human_cards, prev_boss_cards, prev_community_cards
+    if poker_game is None:
+        return
+
+    # Human
+    current_human = poker_game.human.hand[:]
+    if len(current_human) > len(prev_human_cards):
+        for i in range(len(prev_human_cards), len(current_human)):
+            create_animation_for_card(current_human[i], i, 'human')
+    prev_human_cards = current_human[:]
+
+    # Boss
+    current_boss = poker_game.boss.hand[:]
+    if len(current_boss) > len(prev_boss_cards):
+        for i in range(len(prev_boss_cards), len(current_boss)):
+            create_animation_for_card(current_boss[i], i, 'boss')
+    prev_boss_cards = current_boss[:]
+
+    # Community
+    current_community = poker_game.table.communityCards[:]
+    if len(current_community) > len(prev_community_cards):
+        for i in range(len(prev_community_cards), len(current_community)):
+            create_animation_for_card(current_community[i], i, 'community')
+    prev_community_cards = current_community[:]
+
+def update_animations():
+    global active_animations, animating, animating_card_keys
+    if not active_animations:
+        animating = False
+        animating_card_keys.clear()
+        return
+    remaining = []
+    for anim in active_animations:
+        if not anim.update():
+            remaining.append(anim)
+    active_animations = remaining
+    if not active_animations:
+        animating = False
+        animating_card_keys.clear()
+
+def draw_deck(surface):
+    scalar = min(HEIGHT, WIDTH) / 20
+    card_w, card_h = int(scalar * 2.5), int(scalar * 3.5)
+    deck_rect = pygame.Rect(0, 0, card_w, card_h)
+    deck_rect.center = deck_pos
+    pygame.draw.rect(surface, (100, 50, 0), deck_rect, border_radius=5)
+    pygame.draw.rect(surface, GOLD, deck_rect, 3, border_radius=5)
+    deck_text = font.render("DECK", True, WHITE)
+    surface.blit(deck_text, deck_text.get_rect(center=deck_rect.center))
+
 # --------------------------------------------------
 # MAIN LOOP
 # --------------------------------------------------
 running = True
+last_time = pygame.time.get_ticks()
+
 while running:
+    current_time = pygame.time.get_ticks()
+    dt = current_time - last_time
+    last_time = current_time
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT: running = False
         if event.type == pygame.VIDEORESIZE:
@@ -190,75 +374,94 @@ while running:
             if quit_button.clicked(event): running = False
 
         elif game_state == "poker":
+            # Allow player actions only if not animating (boss message doesn't block)
+            if not animating:
+                if checkCall_btn.clicked(event):
+                    # finds the amount that the player needs to call
+                    callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
 
-            if checkCall_btn.clicked(event):
-                #finds the amount that the player needs to call
-                callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
+                    if callAmount <= 0:
+                        action = Action("check")
+                    else:
+                        action = Action("call")
 
-                if callAmount <= 0:
-                    action = Action("check")
-                else:
-                    action = Action("call")
+                    action.processAction(poker_game.currentPlayer, poker_game)
+                    poker_game.playerActed = True
 
-                action.processAction(poker_game.currentPlayer, poker_game)
-                poker_game.playerActed = True
+                    # temporary boss check/call logic
+                    bossCallAmount = poker_game.getCallAmount(poker_game.boss)
 
-                #temporary boss check/call logic
-                bossCallAmount = poker_game.getCallAmount(poker_game.boss)
+                    if bossCallAmount <= 0:
+                        bossAction = Action("check")
+                        set_boss_message("Boss: Check")
+                    else:
+                        bossAction = Action("call")
+                        set_boss_message(f"Boss: Call ${bossCallAmount}")
 
-                if bossCallAmount <= 0:
+                    bossAction.processAction(poker_game.boss, poker_game)
+                    poker_game.bossActed = True
 
-                    bossAction = Action("check")
-                else:
+                if raise_btn.clicked(event):
+                    action = Action("raise", 50)
+                    action.processAction(poker_game.currentPlayer, poker_game)
+                    poker_game.playerActed = True
+
+                    # temporary boss logic
                     bossAction = Action("call")
+                    set_boss_message("Boss: Call $50")
+                    bossAction.processAction(poker_game.boss, poker_game)
+                    poker_game.bossActed = True
 
-                bossAction.processAction(poker_game.boss, poker_game)
+                if fold_btn.clicked(event):
+                    action = Action("fold")
+                    action.processAction(poker_game.currentPlayer, poker_game)                
 
-                poker_game.bossActed = True
-
-            if raise_btn.clicked(event):
-
-                action = Action("raise", 50)
-                action.processAction(poker_game.currentPlayer, poker_game)
-                poker_game.playerActed = True
-
-                #temporary boss logic
-                bossAction = Action("call")
-                bossAction.processAction(poker_game.boss, poker_game)
-                poker_game.bossActed = True
-
-            if fold_btn.clicked(event):
-
-                action = Action("fold")
-                action.processAction(poker_game.currentPlayer, poker_game)                
-
-                poker_game.handWinner = poker_game.boss
-                poker_game.phase = "handCheck"
-                poker_game.phaseIndex = GAMEPHASE.index("handCheck")
-                poker_game.playerActed = False
-                poker_game.bossActed = False
-                
-            if leave_btn.clicked(event) or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
-
-                game_state = "world"
+                    poker_game.handWinner = poker_game.boss
+                    poker_game.phase = "handCheck"
+                    poker_game.phaseIndex = GAMEPHASE.index("handCheck")
+                    poker_game.playerActed = False
+                    poker_game.bossActed = False
+                    set_boss_message("Boss: Wins (Player folded)")
+                    
+                if leave_btn.clicked(event) or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                    game_state = "world"
+                    active_animations.clear()
+                    animating = False
+                    animating_card_keys.clear()
+                    prev_human_cards = []
+                    prev_boss_cards = []
+                    prev_community_cards = []
+                    boss_message_text = None
+                    boss_message_timer = 0
 
         if event.type == pygame.KEYDOWN:
-
-            #starts a new hand after handCheck
-            if game_state == "poker" and poker_game is not None and poker_game.phase == "handCheck":
+            # starts a new hand after handCheck
+            if game_state == "poker" and poker_game is not None and poker_game.phase == "handCheck" and not animating:
                 poker_game.newHand()
+                prev_human_cards = []
+                prev_boss_cards = []
+                prev_community_cards = []
+                active_animations.clear()
+                animating_card_keys.clear()
+                detect_and_animate_new_cards()
+                boss_message_text = None
 
             if event.key == pygame.K_ESCAPE and game_state != "poker": 
                 game_state = "menu"
 
             if event.key == pygame.K_e and game_state == "world" and near_table():
-
                 human_player = Player("You")
                 boss_player = Boss("Boss", "easy", 2)
                 poker_game = ActiveGame(human_player, boss_player)
-
                 poker_game.newHand()
-
+                prev_human_cards = []
+                prev_boss_cards = []
+                prev_community_cards = []
+                active_animations.clear()
+                animating = False
+                animating_card_keys.clear()
+                detect_and_animate_new_cards()
+                boss_message_text = None
                 game_state = "poker"
 
     # UPDATE
@@ -270,37 +473,42 @@ while running:
         for npc in npcs: npc.update(world_colliders)
 
     if game_state == "poker" and poker_game is not None:
+        # Update boss message timer
+        update_boss_message(dt)
 
-        #betting round completeness check
-        if poker_game.phase != "handCheck" and poker_game.playerActed and poker_game.bossActed:
-            poker_game.changePhase()
-            poker_game.playerActed = False
-            poker_game.bossActed = False
+        # Update animations (movement)
+        update_animations()
 
-        if poker_game.phase == "flop":
-            poker_game.dealCommunityCards()
-            poker_game.changePhase()
+        # Only advance game logic when not animating (boss message does not block game logic)
+        if not animating:
+            # betting round completeness check
+            if poker_game.phase != "handCheck" and poker_game.playerActed and poker_game.bossActed:
+                poker_game.changePhase()
+                poker_game.playerActed = False
+                poker_game.bossActed = False
 
-        elif poker_game.phase == "turn":
-            poker_game.dealCommunityCards()
-            poker_game.changePhase()
-        
-        elif poker_game.phase == "river":
-            poker_game.dealCommunityCards()
-            poker_game.changePhase()
-
-        elif poker_game.phase == "handCheck" and not poker_game.showdownDone:
-            #if player folded
-            if poker_game.handWinner is not None:
-                poker_game.awardPot(poker_game.handWinner)
-                winner = poker_game.handWinner
-                rank = None
-            #if player did not fold
-            else:
-                 winner, rank = poker_game.showDown()
-
-            poker_game.showdownDone = True
-
+            if poker_game.phase == "flop":
+                poker_game.dealCommunityCards()
+                poker_game.changePhase()
+                detect_and_animate_new_cards()
+            elif poker_game.phase == "turn":
+                poker_game.dealCommunityCards()
+                poker_game.changePhase()
+                detect_and_animate_new_cards()
+            elif poker_game.phase == "river":
+                poker_game.dealCommunityCards()
+                poker_game.changePhase()
+                detect_and_animate_new_cards()
+            elif poker_game.phase == "handCheck" and not poker_game.showdownDone:
+                # if player folded
+                if poker_game.handWinner is not None:
+                    poker_game.awardPot(poker_game.handWinner)
+                    winner = poker_game.handWinner
+                    rank = None
+                # if player did not fold
+                else:
+                    winner, rank = poker_game.showDown()
+                poker_game.showdownDone = True
 
     # DRAW
     screen.fill(FLOOR)
@@ -331,63 +539,83 @@ while running:
         scalar = min(HEIGHT, WIDTH) / 20
         card_w, card_h = int(scalar * 2.5), int(scalar * 3.5) 
         
+        draw_deck(screen)
+
         # --- DEALER HAND ---
-        dealer_x = 60 # Padding from left wall
+        dealer_x = 60
         dealer_y = HEIGHT * 0.12
         dealer_label = font.render("Dealer:", True, GOLD)
         screen.blit(dealer_label, (dealer_x, dealer_y - 30))
 
-        #--- Update Button Text ----
-        callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
+        # --- Update Button Text ----
+        if not animating:
+            callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
 
-        if callAmount <= 0:
-            checkCall_btn.text = "Check"
-        else:
-            checkCall_btn.text = f"Call (${callAmount})"
+            if callAmount <= 0:
+                checkCall_btn.text = "Check"
+            else:
+                checkCall_btn.text = f"Call (${callAmount})"
 
-        raise_btn.text = "Raise (50$)"
+            raise_btn.text = "Raise (50$)"
         
+        # Draw dealer cards (skip animating ones)
         for i, card in enumerate(poker_game.boss.hand):
+            if ('boss', i) in animating_card_keys:
+                continue
             if poker_game.phase == "handCheck":
                 try:
                     img = pygame.transform.smoothscale(pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png"), (card_w, card_h))
                     screen.blit(img, (dealer_x + i*(card_w + 5), dealer_y))
-                except: pygame.draw.rect(screen, WHITE, (dealer_x + i*(card_w + 5), dealer_y, card_w, card_h), border_radius=5)
+                except: 
+                    pygame.draw.rect(screen, WHITE, (dealer_x + i*(card_w + 5), dealer_y, card_w, card_h), border_radius=5)
             else:
                 # card backs
                 pygame.draw.rect(screen, (150, 0, 0), (dealer_x + i*(card_w + 5), dealer_y, card_w, card_h), border_radius=5)
                 pygame.draw.rect(screen, GOLD, (dealer_x + i*(card_w + 5), dealer_y, card_w, card_h), 2, border_radius=5)
 
-        # Community & WorldPlayer Hands
-        x_comm = WIDTH/2 - (len(poker_game.table.communityCards) * (card_w + 10)) / 2
+        # Community Cards (skip animating ones)
+        total_community = len(poker_game.table.communityCards)
+        x_comm = WIDTH/2 - (total_community * (card_w + 10)) / 2
         for i, card in enumerate(poker_game.table.communityCards):
+            if ('community', i) in animating_card_keys:
+                continue
             try:
                 img = pygame.transform.smoothscale(pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png"), (card_w, card_h))
                 screen.blit(img, (x_comm + i*(card_w + 10), HEIGHT/2 - card_h/2))
-            except: pygame.draw.rect(screen, WHITE, (x_comm + i*(card_w+10), HEIGHT/2 - card_h/2, card_w, card_h))
+            except: 
+                pygame.draw.rect(screen, WHITE, (x_comm + i*(card_w+10), HEIGHT/2 - card_h/2, card_w, card_h))
 
+        # Human Player Hand (skip animating ones)
         x_hand = WIDTH/2 - (2 * (card_w + 10)) / 2
         for i, card in enumerate(poker_game.human.hand):
+            if ('human', i) in animating_card_keys:
+                continue
             try:
                 img = pygame.transform.smoothscale(pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png"), (card_w, card_h))
                 screen.blit(img, (x_hand + i*(card_w + 10), HEIGHT*0.65))
-            except: pygame.draw.rect(screen, WHITE, (x_hand + i*(card_w+10), HEIGHT*0.65, card_w, card_h))
+            except: 
+                pygame.draw.rect(screen, WHITE, (x_hand + i*(card_w+10), HEIGHT*0.65, card_w, card_h))
 
-        #only draw the poker buttons in the phases that are relevant
-        if poker_game.phase != "handCheck":
+        # Draw flying animations
+        for anim in active_animations:
+            anim.draw(screen)
+
+        # Draw boss action message
+        draw_boss_message(screen)
+
+        # Only draw poker buttons if not in handCheck and not animating
+        if poker_game.phase != "handCheck" and not animating:
             for btn in [checkCall_btn, raise_btn, fold_btn, leave_btn]:
-
                 btn.draw(screen)
 
-        #display the message telling player to press any button to continue at the end of a hand
-        if poker_game.phase == "handCheck":
-
+        # display the message telling player to press any button to continue at the end of a hand
+        if poker_game.phase == "handCheck" and not animating:
             displayTxt = font.render("Press any key for next hand", True, WHITE)
             screen.blit(displayTxt, displayTxt.get_rect(center = (WIDTH/2, HEIGHT * 0.85)))
                 
-                 
-
-                
+        if animating:
+            dealing_txt = font.render("Dealing cards...", True, LIGHT_GOLD)
+            screen.blit(dealing_txt, dealing_txt.get_rect(center=(WIDTH/2, HEIGHT * 0.95)))
 
     pygame.display.flip()
     clock.tick(60)
