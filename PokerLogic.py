@@ -66,8 +66,91 @@ class Boss(Player):
         super().__init__(name)
         self.personality = personality
         self.difficulty = difficulty
+
+    def easyDecision(self, strength, call, callRatio, stackRatio, game):
+        
+        if call == 0:
+            if strength in ["strongest"] and random.random() < 0.4:
+                return Action("raise", 50)
+            return Action("check")
+        
+        if strength in ["strongest", "strong"]:
+            return Action("call")
+        
+        if strength == "medium" and callRatio < 0.3:
+            return Action("call")
+        
+        return Action("fold")
+    
+    def mediumDecision(self, strength, call, callRatio, stackRatio, game):
+
+        if call == 0:
+            if strength == "strongest":
+                return Action("raise", max(50, game.table.pot // 2))
+            
+            return Action("check")
+            
+        if strength == "strongest":
+            return Action("raise", max(50, game.table.pot // 2))
+        
+        
+        if strength == "strong" and callRatio < .6:
+            return Action("call")
+        
+        if strength == "medium" and callRatio < .25:
+            return Action("call")
+        
+        if strength == "playable" and call < 50:
+            return Action("call")
+        
+        return Action("fold")
+    
+    def hardDecision(self, strength, call, callRatio, stackRatio, game):
+        
+        if call == 0:
+            if strength == "strongest":
+                #switch up between calling and raising when hand is strong
+                return Action("raise", max(50, game.table.pot // 2))
+            
+            if strength == "strong" and random.random() < 0.4:
+                return Action("raise", max(50, game.table.pot // 2))
+            
+            return Action("check")
+        
+        if strength == "strongest":
+            if callRatio < 1.0:
+                return Action("raise", max(50, game.table.pot // 2))
+            return Action("call")
+        
+        if strength == "strong" and callRatio < 0.5 and stackRatio < 0.2:
+            return Action("call")
+        
+        if strength == "medium" and callRatio < 0.15 and stackRatio < .08:
+            return Action("call")
+            
+        
+        return Action("fold")
     
     def chooseAction(self, game, table, call=0):
+        
+        if len(self.hand) < 2:
+            return Action("check")
+        
+        pot = max(1, game.table.pot)
+        callRatio = call / pot
+        stackRatio = call / max(1, self.chips)
+        strength = evaluateStartingHand(self.hand[0], self.hand[1])
+
+        if self.difficulty == 1:
+            return self.easyDecision(strength, call, callRatio, stackRatio, game)
+        
+        elif self.difficulty == 2:
+            return self.mediumDecision(strength, call, callRatio, stackRatio, game)
+        
+        elif self.difficulty == 3:
+            return self.hardDecision(strength, call, callRatio, stackRatio, game)
+        
+        return Action("check")
 
         phase = game.phase
 
@@ -450,6 +533,44 @@ def evaluateHand(cards):
     #return the lower pair rank or high card if none of the above
     return pairType, PairKickers
 
+def evaluateStartingHand(card1, card2):
+
+    c1 = RANK_VALUE[card1.rank]
+    c2 = RANK_VALUE[card2.rank]
+    suited = card1.suit == card2.suit
+
+    high = max(c1, c2)
+    low = min(c1, c2)
+
+    # if pair
+    if c1 == c2:
+        
+        if c1 >= 11:
+            return "strongest"
+        
+        elif c1 >= 7:
+            return "strong"
+        
+        else:
+            return "medium"
+        
+    if high == 14 and low >= 10:
+        return "strong"
+    
+    if high >= 13 and low >= 10:
+        return "medium"
+    
+    #suited connectors
+    if suited and abs(c1 - c2) == 1 and high >= 9:
+        return "medium"
+    
+    if suited and high >= 11:
+        return "playable" 
+        
+    return "weak"
+
+
+
 def printHand(cards):
     return [(c.rank, c.suit) for c in cards]
 
@@ -589,3 +710,5 @@ else:
     print("Tie")
 
 print()
+      
+

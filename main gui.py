@@ -544,7 +544,7 @@ while running:
         # --- DEALER HAND ---
         dealer_x = 60
         dealer_y = HEIGHT * 0.12
-        dealer_label = font.render("Dealer:", True, GOLD)
+        dealer_label = font.render("Boss:", True, GOLD)
         screen.blit(dealer_label, (dealer_x, dealer_y - 30))
 
         # --- Update Button Text ----
