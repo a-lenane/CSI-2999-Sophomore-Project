@@ -47,13 +47,10 @@ class Player:
             return int(chip_loss * 0.7)
         return chip_loss
 
-    def can_play_table(self, difficulty):
+    def can_play_table(self, difficulty, cost):
         """Check if player has enough chips and has beaten previous difficulties"""
-        requirements = {"easy": 100, "medium": 300, "hard": 800}
-        required_chips = requirements.get(difficulty, 100)
-        
-        if self.chips < required_chips:
-            return False, f"Need {required_chips} chips to play at this table! (You have {self.chips})"
+        if self.chips < cost:
+            return False, f"Need ${cost} to play at this table! (You have ${self.chips})"
         
         # Must beat easy before medium, medium before hard
         if difficulty == "medium" and "easy" not in self.beaten_bosses:

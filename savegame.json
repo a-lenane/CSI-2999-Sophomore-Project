@@ -1,0 +1,20 @@
+{
+  "chips": 150,
+  "beaten_bosses": [
+    "easy",
+    "medium"
+  ],
+  "buffs": [
+    "Lucky Draw",
+    "High Roller"
+  ],
+  "second_chance_used": false,
+  "table_intro_shown": {
+    "easy": true,
+    "medium": true,
+    "hard": true
+  },
+  "current_room": 0,
+  "player_x_ratio": 0.41015625,
+  "player_y_ratio": 0.3277777777777778
+}
