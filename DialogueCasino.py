@@ -79,6 +79,12 @@ dialogue = {
     ]
 }
 
+
+def get_dialogue(category):
+    if category in dialogue:
+        return random.choice(dialogue[category])
+    return "..."
+
 # -------- BOSS DIALOGUE (cover‑safe) --------
 BOSS_DIALOGUE = {
     "easy": {

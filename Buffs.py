@@ -6,13 +6,11 @@ class Player:
         self.chips = 500  # Starting chips
         self.buffs = []
         self.second_chance_used = False
-        self.beaten_bosses = []  # Track which difficulties beaten (legacy)
-        
-        # Persistent boss chip stacks
+        self.beaten_bosses = []  # Track which difficulties beaten
         self.boss_chips = {
             "easy": 1000,
             "medium": 2000,
-            "hard": 4000
+            "hard": 4000,
         }
 
     def add_buff(self, buff_name):
@@ -54,18 +52,38 @@ class Player:
             return int(chip_loss * 0.7)
         return chip_loss
 
-    def can_play_table(self, difficulty, cost):
-        """Check if player has enough chips and has the required buffs for progression"""
-        if self.boss_chips[difficulty] <= 0:
-            return False, "This boss has already been cleaned out!"
+    def can_play_table(self, difficulty, cost=None):
+        """Check if player has enough chips and progression for a table.
 
-        if self.chips < cost:
-            return False, f"Need ${cost} to play at this table! (You have ${self.chips})"
+        The optional cost keeps old code working while the newer main game can
+        pass dynamic buy-ins based on each boss's remaining chip stack.
+        """
+        requirements = {"easy": 100, "medium": 300, "hard": 800}
+        required_chips = cost if cost is not None else requirements.get(difficulty, 100)
+
+        if self.boss_chips.get(difficulty, 1) <= 0:
+            return False, "This boss has already been cleaned out!"
         
-        # Progression relies on holding the previous boss's buff
-        if difficulty == "medium" and not self.has_buff("Lucky Draw"):
+        if self.chips < required_chips:
+            return False, f"Need ${required_chips} to play at this table! (You have ${self.chips})"
+        
+        # Newer flow unlocks rooms by buffs; legacy code still records beaten bosses.
+        if difficulty == "medium" and not (self.has_buff("Lucky Draw") or "easy" in self.beaten_bosses):
             return False, "Old Guard: 'Beat me first before you face the Lady.'"
-        if difficulty == "hard" and not self.has_buff("High Roller"):
+        if difficulty == "hard" and not (self.has_buff("High Roller") or "medium" in self.beaten_bosses):
             return False, "Sharp Lady: 'You're not ready for him yet, darling.'"
         
         return True, "Ready to play!"
+
+    def award_buff_for_boss(self, difficulty):
+        """Give buff reward for beating a boss"""
+        buff_rewards = {
+            "easy": "Lucky Draw",
+            "medium": "High Roller", 
+            "hard": "All-In Fury"
+        }
+        if difficulty in buff_rewards and difficulty not in self.beaten_bosses:
+            self.add_buff(buff_rewards[difficulty])
+            self.beaten_bosses.append(difficulty)
+            return buff_rewards[difficulty]
+        return None
