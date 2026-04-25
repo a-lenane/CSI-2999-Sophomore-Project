@@ -51,7 +51,13 @@ class Player:
 
         self.folded = False
 
-        self.buffs = []
+        self.buffs = {"fourCardStraight": False,
+                      "fourCardFlush": False,
+                      "DiscountCall": False,
+                      "ReadOneBossCard": False,
+                      "BlindSheild": False
+                      }
+
 
     def receiveCard(self, card: Card):
 
@@ -77,7 +83,7 @@ class Boss(Player):
         if strength in ["strongest", "strong"]:
             return Action("call")
         
-        if strength == "medium" and callRatio < 0.3:
+        if strength == "medium" and callRatio < 0.5:
             return Action("call")
         
         return Action("fold")
@@ -87,6 +93,10 @@ class Boss(Player):
         if call == 0:
             if strength == "strongest":
                 return Action("raise", max(50, game.table.pot // 2))
+            
+            #bluff logic
+            if strength == "medium" and random.random() < 0.1:
+                return Action("raise", max(50, game.table.pot // 3))
             
             return Action("check")
             
@@ -115,6 +125,10 @@ class Boss(Player):
             if strength == "strong" and random.random() < 0.4:
                 return Action("raise", max(50, game.table.pot // 2))
             
+            #bluff logic
+            if len(game.table.communityCards) > 0 and strength in ["weak", "medium"] and random.random() < 0.2:
+                return Action("raise", max(50, game.table.pot // 3))   
+            
             return Action("check")
         
         if strength == "strongest":
@@ -139,7 +153,14 @@ class Boss(Player):
         pot = max(1, game.table.pot)
         callRatio = call / pot
         stackRatio = call / max(1, self.chips)
-        strength = evaluateStartingHand(self.hand[0], self.hand[1])
+
+        #logic to use the correct hand strength function 
+        if len(game.table.communityCards) == 0:
+            strength = evaluateStartingHand(self.hand[0], self.hand[1])
+        
+        else:
+            strength = evaluatePostFlopStrength(self.hand + game.table.communityCards)
+
 
         if self.difficulty == 1:
             return self.easyDecision(strength, call, callRatio, stackRatio, game)
@@ -268,6 +289,9 @@ class ActiveGame:
         self.bossActed = False
         self.showdownDone = False
 
+        self.smallBlind = 25
+        self.bigBlind = 50
+
 
     #function for starting/dealing a new hand
     def newHand(self):
@@ -277,7 +301,7 @@ class ActiveGame:
         self.table.reset()
         self.currentPlayer.hand.clear()
         self.boss.hand.clear()
-        self.phaseIndex = 0
+        self.phaseIndex = 1
         self.phase = GAMEPHASE[self.phaseIndex]
         self.currentBet = 0
         self.currentPlayer.currentContribution = 0
@@ -291,6 +315,19 @@ class ActiveGame:
         #deal the new hand
         self.deck.deal(self.currentPlayer, 2)
         self.deck.deal(self.boss, 2)
+
+        #take blinds
+        sb = min(self.smallBlind, self.human.chips)
+        bb = min(self.bigBlind, self.boss.chips)
+
+        self.human.chips -= sb
+        self.human.currentContribution = sb
+
+        self.boss.chips -= bb
+        self.boss.currentContribution = bb
+
+        self.table.pot = sb + bb
+        self.currentBet = bb
 
     #method for dealing community cards depending on phase
     def dealCommunityCards(self):
@@ -393,42 +430,57 @@ class ActiveGame:
 
 ##_____________functions for evaluating the winning hand____________________"
 
-def flush(cards):
+def flush(cards, needed = 5):
     ##create a list for each suit in the hand
-    suits = [c.suit for c in cards]
+    suitsCounts = Counter(c.suit for c in cards)
 
-    ##takes the list of suits and creates a set to remove duplicates, returns boolean
-    return len(set(suits)) == 1
+    ##checks that the number of suits is 5 or more
+    return any(count >= needed for count in suitsCounts.values())
 
 ##helper function for determining the high card of the flush when comparing two flushes
-def flushKicker(cards):
+def flushKicker(cards, needed = 5):
+    #create a dictionary for each suit, and appened each cards rank to the correct suit group
+    suitGroups = {}
+    for c in cards:
+        suitGroups.setdefault(c.suit, []).append(RANK_VALUE[c.rank])
 
-    ranks = [RANK_VALUE[c.rank] for c in cards]
+    #create a list of the best flush group with the needed amount depending on if buff is active or not  
+    bestFlushRanks = None
+    for suit, ranks in suitGroups.item():
+        if len(ranks) >= needed:
+            current = sorted(ranks, reverse=True)[:needed]
+            if bestFlushRanks is None or current > bestFlushRanks:
+                bestFlushRanks = current
+    
 
-    flushRanks = sorted(ranks, reverse = True)
+    
 
-    return flushRanks
+    return bestFlushRanks
 
 ##returns the straight high card value if it is a straight, and None of not a straight
-def straightValue(cards):
+def straightValue(cards, needed = 5):
 
-    ##create a list to hold the cards by value for comparison, then sort from low -> high removing duplicates
-    ranks = [RANK_VALUE[c.rank] for c in cards]
-    
-    ranks = sorted(set(ranks))
+    ##create a list to hold the cards by value for comparison, then sort from low -> high removing duplicate
+    ranks = sorted(set(RANK_VALUE[c.rank] for c in cards))
 
-    if len(ranks) != 5:
-        return None
+    #handles the wheel house straight
+    if 14 in ranks:
+        ranks = [1] + ranks
 
-    if ranks == [2,3,4,5,14]:
-        return 5
-    
-    for i in range(4):
+    streak = 1 
+    bestHigh = None
 
-        if ranks[i] + 1 != ranks[i+1]:
-            return None
-        
-    return ranks[-1] 
+    for i in range(1, len(ranks)):
+        if ranks[i] == ranks[i - 1] + 1:
+            streak += 1
+            if streak >= needed:
+                bestHigh = ranks[i]
+
+            else:
+                streak = 1
+
+    return bestHigh
+
 
 #all-in-one function for determining if a pair is a full house, four of a kind, three of a kind, two of a kind, two pair,
 # or single pair
@@ -489,14 +541,14 @@ def evaluatePairs(cards):
     ##high card
     return 0, sorted(ranks, reverse = True)
 
-def bestHandOf7(cards7):
+def bestHandOf7(cards7, player = None):
 
     best5 = None
     bestHandScore = None
 
     for hand5 in combinations(cards7, 5):
 
-        handScore = evaluateHand(hand5)
+        handScore = evaluateHand(hand5, player)
 
         if bestHandScore == None or handScore > bestHandScore:
 
@@ -506,10 +558,19 @@ def bestHandOf7(cards7):
     return bestHandScore, best5
 
 #fucntion used by bestHandOf7 to evaluate each players hand
-def evaluateHand(cards):
+def evaluateHand(cards, player = None):
 
-    straight = straightValue(cards)
-    isFlush = flush(cards)
+    straightNeeded = 5
+    flushNeeded = 5
+
+    if player is not None:
+        if player.buffs.get("fourCardStraight", False):
+            straightNeeded = 4
+        if player.buffs.get("fourCardFlush", False):
+            flushNeeded = 4
+
+    straight = straightValue(cards, straightNeeded)
+    isFlush = flush(cards, flushNeeded)
 
     if straight is not None and isFlush:
         return 8 #, [straight]
@@ -524,7 +585,7 @@ def evaluateHand(cards):
     
     if isFlush:
 
-        return 5, flushKicker(cards)
+        return 5, flushKicker(cards, flushNeeded)
     
     if straight is not None:
 
@@ -569,6 +630,23 @@ def evaluateStartingHand(card1, card2):
         
     return "weak"
 
+def evaluatePostFlopStrength(cards):
+
+    handScore, best5 = bestHandOf7(cards)
+
+    rank = handScore[0] if isinstance(handScore, tuple) else handScore
+
+    if rank >= 5:
+        return "strongest"
+    
+    elif rank >= 3:
+        return "strong"
+    
+    elif rank >= 1:
+        return "medium"
+    
+    else:
+        return "weak"
 
 
 def printHand(cards):
