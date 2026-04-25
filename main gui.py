@@ -4,16 +4,14 @@ import random
 import json
 import os
 from PokerLogic import *
+from DialogueCasino import dialogue, BOSS_DIALOGUE, STORY_PAGES, GAME_OVER_TEXT, ENDING_TEXT
 from Buffs import Player as PersistentPlayer
-import DialogueCasino as dc
 
 """
 TODO:
 - hide dealer cards (diff card backs for diff dealers?)
 - menu to adjust bet amount (maybe buttons like, bet 1x, bet 2x, bet 5x)
-- player money tracking
 - using ChipsAndCode to assess hands, can maybe show optimal hand to player during play
-- determine a winner (+ payout)
 - where get buffs (store?)
 - hide player cards until click "deal" button
 - dynamic adjustments for each turn, such as "deal" being only option, then only "check" or "bet", then "check", "bet" or fold, with game finish handling
@@ -83,7 +81,7 @@ SAVE_FILE = "savegame.json"
 def save_game():
     data = {
         "chips": persistent_player.chips,
-        "beaten_bosses": persistent_player.beaten_bosses,
+        "boss_chips": persistent_player.boss_chips,
         "buffs": persistent_player.buffs,
         "second_chance_used": persistent_player.second_chance_used,
         "table_intro_shown": table_intro_shown,
@@ -100,7 +98,10 @@ def load_game():
         with open(SAVE_FILE, "r") as f:
             data = json.load(f)
         persistent_player.chips = data["chips"]
-        persistent_player.beaten_bosses = data["beaten_bosses"]
+        
+        if "boss_chips" in data:
+            persistent_player.boss_chips = data["boss_chips"]
+            
         persistent_player.buffs = data["buffs"]
         persistent_player.second_chance_used = data["second_chance_used"]
         table_intro_shown = data["table_intro_shown"]
@@ -112,10 +113,12 @@ def load_game():
     return False
 
 # --------------------------------------------------
-# PERSISTENT PLAYER
+# PERSISTENT PLAYER & BOSS DIALOGUE
 # --------------------------------------------------
 persistent_player = PersistentPlayer("You")
 persistent_player.chips = 500
+
+# (BOSS_DIALOGUE is now imported, no need to redefine)
 
 # --------------------------------------------------
 # UI CLASSES
@@ -366,30 +369,7 @@ ENTRY_COST = {"easy": 50, "medium": 100, "hard": 200}
 
 escape_menu_active = False
 
-# Story pages
-story_pages = [
-    [
-        "CENTRAL INTELLIGENCE AGENCY - EYES ONLY",
-        "Your mission, should you choose to accept it:",
-        "Infiltrate 'The Syndicate', an underground poker ring.",
-        "Your cover: a gifted but unknown poker player."
-    ],
-    [
-        "The Syndicate operates from a hidden basement den.",
-        "Three bosses control the ranks: The Old Guard (Easy),",
-        "The Sharp Lady (Medium), and The Enforcer (Hard).",
-        "Beat them to gain their trust and access their leader."
-    ],
-    [
-        "Your goal: uncover the identity of the mysterious leader.",
-        "Win the final poker game to extract intel and escape.",
-        "If you lose at any stage, your cover is blown.",
-        "Good luck, agent. The Agency is counting on you."
-    ],
-    [
-        "Press any key to begin your infiltration..."
-    ]
-]
+# Story pages are now imported as STORY_PAGES
 story_mode_active = False
 current_story_page = 0
 
@@ -705,10 +685,11 @@ def start_poker_game(room, intro_dialogue=True):
         diff_str = "hard"
         diff_num = 3
 
-    cost = ENTRY_COST[diff_str]
-    
+    # Dynamic actual cost: caps at the boss's remaining chips if they have fewer than the normal buy-in
+    actual_cost = min(ENTRY_COST[diff_str], persistent_player.boss_chips[diff_str])
+
     # Check if player can play this table (chips and progression)
-    allowed, msg = persistent_player.can_play_table(diff_str, cost)
+    allowed, msg = persistent_player.can_play_table(diff_str, actual_cost)
     if not allowed:
         set_boss_message(msg)
         return False
@@ -719,46 +700,44 @@ def start_poker_game(room, intro_dialogue=True):
             lines = [
                 "You approach the worn green felt table.",
                 "The Old Guard looks up: 'So the Agency sent you, huh?'",
-                f"'Buy-in is ${cost}. Let's see if you're for real.'"
+                f"'Buy-in is ${actual_cost}. Let's see if you're for real.'"
             ]
         elif room == 1:
             lines = [
                 "The blue velvet table gleams under the dim light.",
                 "The Sharp Lady smiles: 'Impressive, you beat the Old Guard.'",
-                f"'Buy-in is ${cost}. My superiors will be watching.'"
+                f"'Buy-in is ${actual_cost}. My superiors will be watching.'"
             ]
         else:
             lines = [
                 "The red felt table sits ominously in the corner.",
                 "The Enforcer leans forward: 'You've made it this far, agent.'",
-                f"'Buy-in ${cost}. The leader wants to meet you.'"
+                f"'Buy-in ${actual_cost}. The leader wants to meet you.'"
             ]
         show_dialogue_screen(lines)
         table_intro_shown[diff_str] = True
 
     # Deduct player's buy-in
-    persistent_player.chips -= cost
+    persistent_player.chips -= actual_cost
 
     # Create new poker game objects
     human_player = Player("You")
     human_player.chips = persistent_player.chips
-    boss_player = Boss("Boss", "serious", diff_num)
-    boss_player.chips = 1000  # Boss starts with a large stack; each hand deducts buy-in
+    
+    boss_name = BOSS_DIALOGUE[diff_str]["name"]
+    boss_player = Boss(boss_name, "serious", diff_num)
+    boss_player.chips = persistent_player.boss_chips[diff_str] 
 
-    # Deduct boss's buy-in (boss pays same amount as player)
-    if boss_player.chips < cost:
-        set_boss_message("Boss doesn't have enough chips! (This shouldn't happen)")
-        return False
-    boss_player.chips -= cost
+    boss_player.chips -= actual_cost
 
     poker_game = ActiveGame(human_player, boss_player)
     current_boss_difficulty = diff_str
 
-    # Start the hand (deal cards) - NOTE: This resets the table pot to 0!
+    # Start the hand (deal cards)
     poker_game.newHand()
 
-    # Set pot to total buy-ins (player + boss) AFTER dealing the hand
-    poker_game.table.pot = cost * 2
+    # Set pot to total buy-ins (player + boss)
+    poker_game.table.pot = actual_cost * 2
 
     # Reset animation and card tracking
     prev_human_cards = []
@@ -786,6 +765,7 @@ def restart_poker_game():
     # Save current chips before cleanup
     if poker_game:
         persistent_player.chips = poker_game.human.chips
+        persistent_player.boss_chips[current_boss_difficulty] = poker_game.boss.chips
     # Clean up existing game state
     cleanup_poker_state()
     # Start a new game at the current room, skipping intro dialogue
@@ -794,36 +774,6 @@ def restart_poker_game():
     else:
         # If cannot start (e.g., insufficient chips), return to world
         game_state = "world"
-
-def start_boss_defeat_dialogue(difficulty):
-    global game_state, poker_game
-    if difficulty == "easy":
-        lines = [
-            "The Old Guard throws his cards on the table.",
-            "'Well played, rookie. The Agency trained you well.'",
-            "'The Sharp Lady is waiting for you in the next room.'"
-        ]
-    elif difficulty == "medium":
-        lines = [
-            "The Sharp Lady sighs. 'Incredible. You're a natural.'",
-            "'The Enforcer is the final gatekeeper. One more win and you meet the leader.'",
-            "She gestures toward the final door."
-        ]
-    else:
-        lines = [
-            "The Enforcer slams his fist on the table. 'Unbelievable!'",
-            "'The leader wants to see you. Follow me...'",
-            "He leads you through a hidden door.",
-            "MISSION UPDATE: You've gained access to the leader's chamber."
-        ]
-    show_dialogue_screen(lines)
-    persistent_player.chips = poker_game.human.chips if poker_game else persistent_player.chips
-    poker_game = None
-    if difficulty == "hard" and difficulty in persistent_player.beaten_bosses:
-        game_state = "ending"
-    else:
-        game_state = "world"
-    cleanup_poker_state()
 
 def cleanup_poker_state():
     global active_animations, animating, animating_card_keys, prev_human_cards, prev_boss_cards, prev_community_cards, boss_message_text, boss_message_timer, boss_thinking, poker_game, show_hand_menu
@@ -840,16 +790,28 @@ def cleanup_poker_state():
     show_hand_menu = False
 
 def check_and_exit_poker_if_defeated():
+    global game_state, poker_game
     if poker_game is None:
         return
     if poker_game.human.chips <= 0:
         show_dialogue_screen(["You're out of chips! Your cover is blown...", "The Syndicate vanishes into the night."])
-        global game_state
         game_state = "game_over"
         cleanup_poker_state()
     elif poker_game.boss.chips <= 0:
         persistent_player.chips = poker_game.human.chips
-        start_boss_defeat_dialogue(current_boss_difficulty)
+        persistent_player.boss_chips[current_boss_difficulty] = 0
+        
+        # Display their defeat dialogue and give buff
+        show_dialogue_screen(BOSS_DIALOGUE[current_boss_difficulty]["defeat"])
+        persistent_player.add_buff(BOSS_DIALOGUE[current_boss_difficulty]["buff"])
+        
+        diff = current_boss_difficulty
+        cleanup_poker_state()
+        
+        if diff == "hard":
+            game_state = "ending"
+        else:
+            game_state = "world"
 
 def show_dialogue_screen(lines):
     waiting = True
@@ -897,6 +859,8 @@ while running:
                 persistent_player.beaten_bosses = []
                 persistent_player.buffs = []
                 persistent_player.second_chance_used = False
+                persistent_player.boss_chips = {"easy": 1000, "medium": 2000, "hard": 4000}
+                
                 table_intro_shown = {"easy": False, "medium": False, "hard": False}
                 current_room = 0
                 player.x_ratio = 0.1
@@ -913,10 +877,10 @@ while running:
             if quit_main_btn.clicked(event):
                 running = False
 
-        # Story mode
+        # Story mode (using imported STORY_PAGES)
         if game_state == "story":
             if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
-                if current_story_page + 1 < len(story_pages):
+                if current_story_page + 1 < len(STORY_PAGES):
                     current_story_page += 1
                 else:
                     story_mode_active = False
@@ -951,15 +915,15 @@ while running:
                 escape_menu_active = True
             if event.type == pygame.KEYDOWN and event.key == pygame.K_e:
                 if near_table():
-                    # Check if player can play before starting dialogue
                     if current_room == 0:
                         diff_str = "easy"
                     elif current_room == 1:
                         diff_str = "medium"
                     else:
                         diff_str = "hard"
-                    
-                    allowed, msg = persistent_player.can_play_table(diff_str, ENTRY_COST[diff_str])
+                        
+                    actual_cost = min(ENTRY_COST[diff_str], persistent_player.boss_chips[diff_str])
+                    allowed, msg = persistent_player.can_play_table(diff_str, actual_cost)
                     
                     if not allowed:
                         set_boss_message(msg)
@@ -968,14 +932,14 @@ while running:
                 else:
                     door = near_any_door()
                     if door:
-                        # Lock door to room 2 (hard) until medium is beaten
-                        if door.target_room == 2 and "medium" not in persistent_player.beaten_bosses:
-                            set_boss_message("Door locked! Defeat the Medium boss first.")
+                        # Door interactions with character dialogues
+                        if door.target_room == 2 and not persistent_player.has_buff("High Roller"):
+                            set_boss_message(BOSS_DIALOGUE["medium"]["door_lock"])
                             continue
-                        # Also lock door to room 1 (medium) until easy beaten
-                        if door.target_room == 1 and "easy" not in persistent_player.beaten_bosses:
-                            set_boss_message("Door locked! Defeat the Easy boss first.")
+                        if door.target_room == 1 and not persistent_player.has_buff("Lucky Draw"):
+                            set_boss_message(BOSS_DIALOGUE["easy"]["door_lock"])
                             continue
+                        
                         wall_thick_x = int(BASE_WALL_THICK * current_scale_x)
                         wall_thick_y = int(BASE_WALL_THICK * current_scale_y)
                         direction = get_door_direction(door.rect, wall_thick_x, wall_thick_y)
@@ -1002,7 +966,9 @@ while running:
                     boss_thinking = True
                     boss_think_start_time = current_time
                     boss_think_duration = random.randint(500, 2000)
-                    set_boss_message("Boss is thinking...")
+                    
+                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
+                    set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
 
                 if raise_btn.clicked(event):
                     callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
@@ -1016,7 +982,9 @@ while running:
                     boss_thinking = True
                     boss_think_start_time = current_time
                     boss_think_duration = random.randint(500, 2000)
-                    set_boss_message("Boss is thinking...")
+                    
+                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
+                    set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
 
                 if fold_btn.clicked(event):
                     action = Action("fold")
@@ -1026,19 +994,19 @@ while running:
                     poker_game.phaseIndex = GAMEPHASE.index("handCheck")
                     poker_game.playerActed = False
                     poker_game.bossActed = False
-                    set_boss_message("Boss: Wins (Player folded)")
 
                 if leave_btn.clicked(event) or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                     persistent_player.chips = poker_game.human.chips
+                    persistent_player.boss_chips[current_boss_difficulty] = poker_game.boss.chips
                     cleanup_poker_state()
                     game_state = "world"
 
             if show_hand_menu and not animating:
                 if play_again_btn.clicked(event):
-                    # Start a new game with fresh buy-in at same table
                     restart_poker_game()
                 if leave_table_btn.clicked(event):
                     persistent_player.chips = poker_game.human.chips
+                    persistent_player.boss_chips[current_boss_difficulty] = poker_game.boss.chips
                     cleanup_poker_state()
                     game_state = "world"
 
@@ -1073,21 +1041,29 @@ while running:
                     boss_action = Action("fold")
                 else:
                     boss_action = poker_game.boss.chooseAction(poker_game, poker_game.table, callAmount)
+                
                 boss_action.processAction(poker_game.boss, poker_game)
                 poker_game.bossActed = True
+                boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
+                
                 if boss_action.type == "fold":
-                    set_boss_message(f"Boss: Folds")
+                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["fold"])
+                    set_boss_message(f"{boss_name}: '{dialogue_option}'")
                     poker_game.handWinner = poker_game.human
                     poker_game.phase = "handCheck"
                     poker_game.phaseIndex = GAMEPHASE.index("handCheck")
                     poker_game.playerActed = False
                     poker_game.bossActed = False
                 elif boss_action.type == "call":
-                    set_boss_message(f"Boss: Calls ${callAmount}")
+                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["call"])
+                    set_boss_message(f"{boss_name}: '{dialogue_option}' (${callAmount})")
                 elif boss_action.type == "raise":
-                    set_boss_message(f"Boss: Raises to ${poker_game.currentBet}")
+                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["raise"])
+                    set_boss_message(f"{boss_name}: '{dialogue_option}' (Raise to ${poker_game.currentBet})")
                 elif boss_action.type == "check":
-                    set_boss_message("Boss: Checks")
+                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["check"])
+                    set_boss_message(f"{boss_name}: '{dialogue_option}'")
+                
                 boss_thinking = False
 
         if not animating and not boss_thinking:
@@ -1117,11 +1093,7 @@ while running:
                 poker_game.showdownDone = True
                 persistent_player.chips = poker_game.human.chips
                 last_hand_player_won = (winner == poker_game.human)
-                if last_hand_player_won:
-                    award = persistent_player.award_buff_for_boss(current_boss_difficulty)
-                    if award:
-                        set_boss_message(f"You defeated {current_boss_difficulty} boss! Gained buff: {award}")
-                # Show the post-hand menu
+                
                 show_hand_menu = True
                 check_and_exit_poker_if_defeated()
                 if game_state != "poker":
@@ -1138,13 +1110,13 @@ while running:
 
     elif game_state == "story":
         screen.fill((0, 0, 0))
-        page_lines = story_pages[current_story_page]
+        page_lines = STORY_PAGES[current_story_page]
         y_offset = HEIGHT // 2 - (len(page_lines) * 30) // 2
         for line in page_lines:
             text = font.render(line, True, WHITE)
             screen.blit(text, (WIDTH//2 - text.get_width()//2, y_offset))
             y_offset += 40
-        if current_story_page + 1 >= len(story_pages):
+        if current_story_page + 1 >= len(STORY_PAGES):
             prompt = "Press any key to begin"
         else:
             prompt = "Press any key to continue..."
@@ -1182,26 +1154,33 @@ while running:
         screen.blit(chips_text, (WIDTH - 150, 20))
 
         if near_table():
-            if current_room == 0:
-                prompt = f"Press E to Play Poker (Easy) - Buy-in ${ENTRY_COST['easy']}"
-            elif current_room == 1:
-                if "easy" in persistent_player.beaten_bosses:
-                    prompt = f"Press E to Play Poker (Medium) - Buy-in ${ENTRY_COST['medium']}"
-                else:
-                    prompt = "Defeat Easy boss first to play here"
+            diff_str = "easy" if current_room == 0 else ("medium" if current_room == 1 else "hard")
+            
+            if persistent_player.boss_chips[diff_str] <= 0:
+                prompt = "The table is empty. The boss has left."
             else:
-                if "medium" in persistent_player.beaten_bosses:
-                    prompt = f"Press E to Play Poker (Hard) - Buy-in ${ENTRY_COST['hard']}"
+                actual_cost = min(ENTRY_COST[diff_str], persistent_player.boss_chips[diff_str])
+                
+                if current_room == 0:
+                    prompt = f"Press E to Play Poker (Easy) - Buy-in ${actual_cost}"
+                elif current_room == 1:
+                    if persistent_player.has_buff("Lucky Draw"):
+                        prompt = f"Press E to Play Poker (Medium) - Buy-in ${actual_cost}"
+                    else:
+                        prompt = "The Sharp Lady is ignoring you."
                 else:
-                    prompt = "Defeat Medium boss first to play here"
+                    if persistent_player.has_buff("High Roller"):
+                        prompt = f"Press E to Play Poker (Hard) - Buy-in ${actual_cost}"
+                    else:
+                        prompt = "The Enforcer refuses to play you."
             screen.blit(font.render(prompt, True, WHITE), (WIDTH/2 - font.size(prompt)[0]//2, HEIGHT*0.9))
         else:
             door = near_any_door()
             if door:
-                if door.target_room == 2 and "medium" not in persistent_player.beaten_bosses:
-                    prompt = "Door locked! Defeat Medium boss first."
-                elif door.target_room == 1 and "easy" not in persistent_player.beaten_bosses:
-                    prompt = "Door locked! Defeat Easy boss first."
+                if door.target_room == 2 and not persistent_player.has_buff("High Roller"):
+                    prompt = "Door locked! Face the Sharp Lady first."
+                elif door.target_room == 1 and not persistent_player.has_buff("Lucky Draw"):
+                    prompt = "Door locked! The Old Guard blockades your path."
                 else:
                     prompt = "Press E to go through door"
                 screen.blit(font.render(prompt, True, WHITE), (WIDTH/2 - font.size(prompt)[0]//2, HEIGHT*0.9))
@@ -1226,7 +1205,8 @@ while running:
         draw_deck(screen)
         dealer_x = 60
         dealer_y = HEIGHT * 0.12
-        dealer_label = font.render("Boss:", True, GOLD)
+        boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
+        dealer_label = font.render(f"{boss_name} Chips: ${poker_game.boss.chips}", True, GOLD)
         screen.blit(dealer_label, (dealer_x, dealer_y - 30))
         if not animating and not boss_thinking and not show_hand_menu:
             callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
@@ -1276,7 +1256,8 @@ while running:
         screen.blit(chips_text, (20, HEIGHT - 40))
 
         if show_hand_menu and not animating:
-            play_again_btn.draw(screen)
+            if persistent_player.boss_chips[current_boss_difficulty] > 0:
+                play_again_btn.draw(screen)
             leave_table_btn.draw(screen)
             result_text = "You won the hand!" if last_hand_player_won else "You lost the hand."
             text_surf = font.render(result_text, True, GOLD)
@@ -1293,13 +1274,7 @@ while running:
 
     elif game_state == "game_over":
         screen.fill((0, 0, 0))
-        lines = [
-            "Your cover is blown. The Syndicate has vanished.",
-            "The Agency disavows all knowledge of your mission.",
-            "You're left with nothing but debts and regret.",
-            "",
-            "GAME OVER"
-        ]
+        lines = GAME_OVER_TEXT
         y_offset = HEIGHT // 2 - 100
         for line in lines:
             text = font.render(line, True, WHITE)
@@ -1311,15 +1286,7 @@ while running:
 
     elif game_state == "ending":
         screen.fill((0, 0, 0))
-        lines = [
-            "AGENCY CHAT LOG - SUCCESSFUL EXFILTRATION",
-            "",
-            "You: 'I've identified the leader. He's a former intelligence officer.'",
-            "Handler: 'Outstanding work, agent. We'll take it from here.'",
-            "",
-            "The Syndicate is dismantled. You're promoted.",
-            "Press ESC to return to the world."
-        ]
+        lines = ENDING_TEXT
         y_offset = HEIGHT // 2 - 120
         for line in lines:
             text = font.render(line, True, WHITE)

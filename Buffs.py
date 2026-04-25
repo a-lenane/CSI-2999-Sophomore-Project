@@ -6,7 +6,14 @@ class Player:
         self.chips = 500  # Starting chips
         self.buffs = []
         self.second_chance_used = False
-        self.beaten_bosses = []  # Track which difficulties beaten
+        self.beaten_bosses = []  # Track which difficulties beaten (legacy)
+        
+        # Persistent boss chip stacks
+        self.boss_chips = {
+            "easy": 1000,
+            "medium": 2000,
+            "hard": 4000
+        }
 
     def add_buff(self, buff_name):
         if buff_name not in self.buffs:
@@ -48,27 +55,17 @@ class Player:
         return chip_loss
 
     def can_play_table(self, difficulty, cost):
-        """Check if player has enough chips and has beaten previous difficulties"""
+        """Check if player has enough chips and has the required buffs for progression"""
+        if self.boss_chips[difficulty] <= 0:
+            return False, "This boss has already been cleaned out!"
+
         if self.chips < cost:
             return False, f"Need ${cost} to play at this table! (You have ${self.chips})"
         
-        # Must beat easy before medium, medium before hard
-        if difficulty == "medium" and "easy" not in self.beaten_bosses:
-            return False, "You must beat the Easy boss first!"
-        if difficulty == "hard" and "medium" not in self.beaten_bosses:
-            return False, "You must beat the Medium boss first!"
+        # Progression relies on holding the previous boss's buff
+        if difficulty == "medium" and not self.has_buff("Lucky Draw"):
+            return False, "Old Guard: 'Beat me first before you face the Lady.'"
+        if difficulty == "hard" and not self.has_buff("High Roller"):
+            return False, "Sharp Lady: 'You're not ready for him yet, darling.'"
         
         return True, "Ready to play!"
-
-    def award_buff_for_boss(self, difficulty):
-        """Give buff reward for beating a boss"""
-        buff_rewards = {
-            "easy": "Lucky Draw",
-            "medium": "High Roller", 
-            "hard": "All-In Fury"
-        }
-        if difficulty in buff_rewards and difficulty not in self.beaten_bosses:
-            self.add_buff(buff_rewards[difficulty])
-            self.beaten_bosses.append(difficulty)
-            return buff_rewards[difficulty]
-        return None
