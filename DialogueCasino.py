@@ -20,7 +20,7 @@ BOSS_DIALOGUE = {
         "name": "Sharp Lady",
         "think": ["Hmmm, darling...", "Let me calculate the odds...", "Are you bluffing?" "Let's see how sharp I am."],
         "fold": ["I know when to fold 'em.", "I won't fall for that.", "Take the pennies." "Fold em baby."],
-        "call": ["I'll call you on that.", "Matching.", "Let's see it, darling." "I'll call it sweetie.],
+        "call": ["I'll call you on that.", "Matching.", "Let's see it, darling." "I'll call it sweetie."],
         "raise": ["Up the stakes.", "I'm raising. Can you handle it?", "Let's make this expensive." "Why the long face honey?"],
         "check": ["Check.", "Pass to you.", "Go ahead." "Take it"],
         "defeat": [
