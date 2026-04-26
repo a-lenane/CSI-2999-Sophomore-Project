@@ -670,26 +670,23 @@ def start_poker_game(room, intro_dialogue=True):
         set_boss_message(msg)
         return False
 
-    actual_cost = min(ENTRY_COST[diff_str], boss_chips[diff_str])
-
     if intro_dialogue and not table_intro_shown.get(diff_str, False):
         if room == 0:
             lines = ["You approach the worn green felt table.",
                      "The Old Guard looks up: 'So the Agency sent you, huh?'",
-                     f"'Buy-in is ${actual_cost}. Let's see if you're for real.'"]
+                     f"Cash game for your life. Let's see if you're for real.'"]
         elif room == 1:
             lines = ["The blue velvet table gleams under the dim light.",
                      "The Sharp Lady smiles: 'Impressive, you beat the Old Guard.'",
-                     f"'Buy-in is ${actual_cost}. My superiors will be watching.'"]
+                     f"Come put your life on the line. My superiors will be watching.'"]
         else:
             lines = ["The red felt table sits ominously in the corner.",
                      "The Enforcer leans forward: 'You've made it this far, agent.'",
-                     f"'Buy-in ${actual_cost}. The leader wants to meet you.'"]
+                     f"'You's a man or a mouse? The leader wants to meet you.'"]
         show_dialogue_screen(lines)
         table_intro_shown[diff_str] = True
 
-    human_player.chips -= actual_cost
-    boss_chips[diff_str] -= actual_cost
+    
 
     boss_name = BOSS_DIALOGUE[diff_str]["name"]
     boss_player = Boss(boss_name, "serious", ["easy","medium","hard"].index(diff_str)+1)
@@ -701,7 +698,7 @@ def start_poker_game(room, intro_dialogue=True):
     human_player.buffs["peekBossCardUsed"] = False
 
     poker_game.newHand()
-    poker_game.table.pot = actual_cost * 2
+    
 
     prev_human_cards = []
     prev_boss_cards = []
@@ -1121,15 +1118,15 @@ while running:
             else:
                 actual_cost = min(ENTRY_COST[diff_str], boss_chips[diff_str])
                 if current_room == 0:
-                    prompt = f"Press E to Play Poker (Easy) - Buy-in ${actual_cost}"
+                    prompt = f"Press E to Play Poker (Easy)"
                 elif current_room == 1:
                     if bosses_defeated["easy"]:
-                        prompt = f"Press E to Play Poker (Medium) - Buy-in ${actual_cost}"
+                        prompt = f"Press E to Play Poker (Medium)"
                     else:
                         prompt = "The Sharp Lady is ignoring you."
                 else:
                     if bosses_defeated["medium"]:
-                        prompt = f"Press E to Play Poker (Hard) - Buy-in ${actual_cost}"
+                        prompt = f"Press E to Play Poker (Hard)"
                     else:
                         prompt = "The Enforcer refuses to play you."
             screen.blit(font.render(prompt, True, WHITE), (WIDTH/2 - font.size(prompt)[0]//2, HEIGHT*0.9))
