@@ -26,9 +26,7 @@ class Player:
         self.buffs = {
             "fourCardStraight": False,
             "fourCardFlush": False,
-            "DiscountCall": False,
-            "ReadOneBossCard": False,
-            "BlindShield": False
+            
         }
 
     def reset_hand_state(self):

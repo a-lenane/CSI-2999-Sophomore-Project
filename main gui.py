@@ -727,7 +727,7 @@ def check_and_exit_poker_if_defeated():
 
         # Award poker buffs
         if current_boss_difficulty == "easy":
-            human_player.buffs["ReadOneBossCard"] = True
+            human_player.buffs["fourCardStraight"] = True
         elif current_boss_difficulty == "medium":
             human_player.buffs["fourCardFlush"] = True
 
@@ -783,9 +783,6 @@ while running:
                 human_player.buffs = {
                     "fourCardStraight": False,
                     "fourCardFlush": False,
-                    "DiscountCall": False,
-                    "ReadOneBossCard": False,
-                    "BlindShield": False
                 }
                 boss_chips = {"easy": 1000, "medium": 2000, "hard": 4000}
                 bosses_defeated = {"easy": False, "medium": False, "hard": False}
