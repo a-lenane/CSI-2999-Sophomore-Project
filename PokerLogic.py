@@ -62,10 +62,18 @@ class Boss(Player):
                 return Action("raise", 50)
             return Action("check")
         if strength in ["strongest", "strong"]:
-            return Action("call")
-        if strength == "medium" and callRatio < 0.5:
-            return Action("call")
-        
+            return Action("raise", 100)
+        if strength == "medium": 
+            if stackRatio < 0.45:
+                return Action("call")
+        if strength == "playable": 
+                if stackRatio < .3:
+                    return Action("call")
+        if strength == "weak": 
+            if stackRatio < 0.15:
+                return Action("call")            
+            if stackRatio < .3 and random.random() < .35:            
+                return Action("call")
         chance = pressureCallChance(strength, callRatio, stackRatio)
         if callRatio > .75:
             adjustedChance = chance * (1 - min(callRatio, 1)) * (1 - stackRatio)
@@ -87,6 +95,9 @@ class Boss(Player):
         if strength == "medium" and callRatio < .45:
             return Action("call")
         if strength == "playable" and callRatio < .25:
+            return Action("call")
+        
+        if strength == "weak" and callRatio <.6 and random.random() < .20:
             return Action("call")
         ##random call chance against big bets
         chance = pressureCallChance(strength, callRatio, stackRatio)
@@ -480,6 +491,8 @@ def evaluateStartingHand(card1, card2):
             return "medium"
     if high == 14 and low >= 10:
         return "strong"
+    if high == 14 and low >= 2:
+        return "playable"
     if high >= 13 and low >= 10:
         return "medium"
     if suited and abs(c1 - c2) == 1 and high >= 9:
