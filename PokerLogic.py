@@ -26,7 +26,7 @@ class Player:
         self.buffs = {
             "fourCardStraight": False,
             "fourCardFlush": False,
-            "peekBossCard": False,
+            "peekBossCard": True,
             "peekBossCardUsed": False
         }
 

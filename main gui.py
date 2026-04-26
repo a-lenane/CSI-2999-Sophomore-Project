@@ -817,7 +817,7 @@ while running:
                 human_player.buffs = {
                     "fourCardStraight": False,
                     "fourCardFlush": False,
-                    "peekBossCard": False,
+                    "peekBossCard": True,
                     "peekBossCardUsed": False
                 }
                 boss_chips = {"easy": 1000, "medium": 2000, "hard": 4000}
