@@ -10,10 +10,10 @@ BOSS_DIALOGUE = {
         "defeat": [
             "The Old Guard sighs heavily, pushing his empty chip tray away.",
             "'Well, you cleaned me out. Guess you got more street smarts than I thought, kid.'",
-            "'Take this Lucky Draw technique. You'll need it against the Lady.'",
+            "'Take this fourCardStraight technique. You'll need it against the Lady.'",
             "The Old Guard slowly stands up and leaves the table."
         ],
-        "buff": "Lucky Draw",
+        "buff": "fourCardStraight",
         "door_lock": "The Old Guard barks: 'Earn your stripes here first, rookie!'"
     },
     "medium": {
@@ -26,10 +26,10 @@ BOSS_DIALOGUE = {
         "defeat": [
             "The Sharp Lady smirks, shaking her head. 'Cleaned me out.'",
             "'I haven't lost like this in years. You're dangerously good for new blood.'",
-            "'Take the High Roller technique. The Enforcer won't go easy on you.'",
+            "'Take the fourCardFlush technique. The Enforcer won't go easy on you.'",
             "She gathers her coat and vanishes into the shadows."
         ],
-        "buff": "High Roller",
+        "buff": "fourCardFlush",
         "door_lock": "The Sharp Lady's voice echoes: 'You're not ready for him yet, darling.'"
     },
     "hard": {
@@ -42,10 +42,10 @@ BOSS_DIALOGUE = {
         "defeat": [
             "The Enforcer slams his fist on the table. 'Empty! Impossible!'",
             "'You've beaten us all. The boss wants to see the new recruit now.'",
-            "'Take my All-In Fury. You'll need it for what comes next.'",
+            "'Take my peakBossCard. You'll need it for what comes next.'",
             "He steps aside, granting you access to the inner sanctum."
         ],
-        "buff": "All-In Fury",
+        "buff": "peakBossCard",
         "door_lock": "The door is bolted shut with heavy steel."
     }
 }
