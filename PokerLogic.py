@@ -133,6 +133,89 @@ class Action:
         elif self.type == "check":
             pass
 
+
+def get_dynamic_raise_limits(game, player=None, default_raise=50):
+    player = player or game.currentPlayer
+    call_amount = game.getCallAmount(player)
+    max_raise = max(0, player.chips - call_amount)
+
+    return {
+        "can_raise": max_raise > 0,
+        "call_amount": call_amount,
+        "max_raise": max_raise,
+        "default_raise": min(default_raise, max_raise),
+    }
+
+
+def process_dynamic_raise(game, raise_amount=None, player=None, all_in=False):
+    player = player or game.currentPlayer
+    limits = get_dynamic_raise_limits(game, player)
+    call_amount = limits["call_amount"]
+    max_raise = limits["max_raise"]
+
+    if all_in:
+        raise_amount = max_raise
+
+    if max_raise <= 0:
+        return {
+            "success": False,
+            "error": "No chips left to raise.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    if raise_amount is None or raise_amount == "":
+        return {
+            "success": False,
+            "error": "Type a raise amount.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    try:
+        raise_amount = int(raise_amount)
+    except ValueError:
+        return {
+            "success": False,
+            "error": "Raise amount must be a number.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    if raise_amount <= 0:
+        return {
+            "success": False,
+            "error": "Enter an amount above $0.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    if raise_amount > max_raise:
+        return {
+            "success": False,
+            "error": f"Max raise is ${max_raise}.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    action = Action("raise", raise_amount)
+    action.processAction(player, game)
+
+    if player == game.human:
+        game.playerActed = True
+    elif player == game.boss:
+        game.bossActed = True
+
+    return {
+        "success": True,
+        "error": None,
+        "action": action,
+        "call_amount": call_amount,
+        "raise_amount": raise_amount,
+        "max_raise": max_raise,
+    }
+
+
 class Deck:
     def __init__(self):
         self.cards = [Card(r,s) for r in RANK for s in SUIT]
