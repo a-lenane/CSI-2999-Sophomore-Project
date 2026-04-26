@@ -2,11 +2,11 @@
 BOSS_DIALOGUE = {
     "easy": {
         "name": "Old Guard",
-        "think": ["Let's see here...", "Give an old man a second...", "What are you up to, rookie?"],
-        "fold": ["Too rich for my blood.", "You can have this one.", "I fold. My bones ache anyway."],
-        "call": ["I'll match that.", "Call. Let's see 'em.", "Not scared of that bet."],
-        "raise": ["Let's make it interesting.", "I raise. Don't test me.", "Back in my day, we bet bigger."],
-        "check": ["Check.", "I'll hold.", "Your move."],
+        "think": ["Let's see here...", "Give an old man a second...", "What are you up to, rookie?" "Let me test my luck."],
+        "fold": ["Too rich for my blood.", "You can have this one.", "I fold. My bones ache anyway." "I'll let you take it."],
+        "call": ["I'll match that.", "Call. Let's see 'em.", "Not scared of that bet." "You think I am scared?"],
+        "raise": ["Let's make it interesting.", "I raise. Don't test me.", "Back in my day, we bet bigger." "RAISE the roof."],
+        "check": ["Check.", "I'll hold.", "Your move." "Checkmate"],
         "defeat": [
             "The Old Guard sighs heavily, pushing his empty chip tray away.",
             "'Well, you cleaned me out. Guess you got more street smarts than I thought, kid.'",
@@ -18,11 +18,11 @@ BOSS_DIALOGUE = {
     },
     "medium": {
         "name": "Sharp Lady",
-        "think": ["Hmmm, darling...", "Let me calculate the odds...", "Are you bluffing?"],
-        "fold": ["I know when to fold 'em.", "I won't fall for that.", "Take the pennies."],
-        "call": ["I'll call you on that.", "Matching.", "Let's see it, darling."],
-        "raise": ["Up the stakes.", "I'm raising. Can you handle it?", "Let's make this expensive."],
-        "check": ["Check.", "Pass to you.", "Go ahead."],
+        "think": ["Hmmm, darling...", "Let me calculate the odds...", "Are you bluffing?" "Let's see how sharp I am."],
+        "fold": ["I know when to fold 'em.", "I won't fall for that.", "Take the pennies." "Fold em baby."],
+        "call": ["I'll call you on that.", "Matching.", "Let's see it, darling." "I'll call it sweetie.],
+        "raise": ["Up the stakes.", "I'm raising. Can you handle it?", "Let's make this expensive." "Why the long face honey?"],
+        "check": ["Check.", "Pass to you.", "Go ahead." "Take it"],
         "defeat": [
             "The Sharp Lady smirks, shaking her head. 'Cleaned me out.'",
             "'I haven't lost like this in years. You're dangerously good for new blood.'",
@@ -34,10 +34,10 @@ BOSS_DIALOGUE = {
     },
     "hard": {
         "name": "Enforcer",
-        "think": ["...", "Trying to be smart?", "I'm watching you closely."],
-        "fold": ["Fine.", "I'll wait for a better shot.", "Fold."],
-        "call": ["Call.", "I'm not going anywhere.", "Matching."],
-        "raise": ["Raise. Think you can match me?", "I'm pushing you out.", "More."],
+        "think": ["...", "Trying to be smart?", "I'm watching you closely." "I can read your mind."],
+        "fold": ["Fine.", "I'll wait for a better shot.", "Fold." "Take the little bucks."],
+        "call": ["Call.", "I'm not going anywhere.", "Matching." "Ring ring, I'm calling."],
+        "raise": ["Raise. Think you can match me?", "I'm pushing you out.", "More." "Let's spice it up."],
         "check": ["Check.", "Move.", "Waiting."],
         "defeat": [
             "The Enforcer slams his fist on the table. 'Empty! Impossible!'",
