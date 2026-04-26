@@ -6,89 +6,6 @@ import os
 from PokerLogic import *
 from DialogueCasino import BOSS_DIALOGUE, STORY_PAGES, GAME_OVER_TEXT, ENDING_TEXT
 
-
-def install_font_fallback_if_needed():
-    import warnings
-
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            pygame.font.SysFont(None, 12)
-        return
-    except (AttributeError, ImportError, NotImplementedError):
-        pass
-
-    from PIL import Image, ImageDraw, ImageFont
-
-    font_dir = "/System/Library/Fonts/Supplemental"
-    font_files = {
-        "arialblack": "Arial Black.ttf",
-        "arial": "Arial.ttf",
-        None: "Arial.ttf",
-    }
-
-    def font_path(name):
-        key = name.lower().replace(" ", "") if isinstance(name, str) else None
-        filename = font_files.get(key, font_files[None])
-        path = os.path.join(font_dir, filename)
-        if os.path.exists(path):
-            return path
-        return os.path.join(os.path.dirname(pygame.__file__), "freesansbold.ttf")
-
-    def rgba(color, alpha=255):
-        values = tuple(color)
-        if len(values) == 4:
-            return values
-        return values[:3] + (alpha,)
-
-    class PillowFont:
-        def __init__(self, name=None, size=24):
-            self.pixel_size = max(1, int(size))
-            self.font = ImageFont.truetype(font_path(name), self.pixel_size)
-
-        def _text_box(self, text):
-            text = "" if text is None else str(text)
-            draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-            bbox = draw.textbbox((0, 0), text, font=self.font)
-            width = max(1, bbox[2] - bbox[0])
-            height = max(1, bbox[3] - bbox[1])
-            return text, bbox, width, height
-
-        def render(self, text, antialias, color, background=None):
-            text, bbox, width, height = self._text_box(text)
-            bg = (0, 0, 0, 0) if background is None else rgba(background)
-            image = Image.new("RGBA", (width, height), bg)
-            draw = ImageDraw.Draw(image)
-            draw.text((-bbox[0], -bbox[1]), text, font=self.font, fill=rgba(color))
-            return pygame.image.frombuffer(image.tobytes(), image.size, "RGBA").copy()
-
-        def size(self, text):
-            _, _, width, height = self._text_box(text)
-            return width, height
-
-    class PillowFontModule:
-        def __init__(self):
-            self._initialized = True
-
-        def init(self):
-            self._initialized = True
-
-        def quit(self):
-            self._initialized = False
-
-        def get_init(self):
-            return self._initialized
-
-        def SysFont(self, name, size, bold=False, italic=False):
-            return PillowFont(name, size)
-
-        def Font(self, file, size):
-            return PillowFont(None, size)
-
-    pygame.font = PillowFontModule()
-
-
-install_font_fallback_if_needed()
 pygame.init()
 
 WIDTH, HEIGHT = 1280, 720
@@ -360,11 +277,8 @@ current_scale_y = 1.0
 
 # Buttons
 checkCall_btn = Button("Check/Call", 0.2, 0.9, 0.15, 0.06)
-raise_btn = Button("Raise", 0.4, 0.9, 0.15, 0.06)
+raise_btn = Button("Raise (50$)", 0.4, 0.9, 0.15, 0.06)
 fold_btn = Button("Fold", 0.6, 0.9, 0.15, 0.06)
-raise_confirm_btn = Button("Confirm", 0.39, 0.64, 0.16, 0.06)
-raise_all_in_btn = Button("All In", 0.55, 0.64, 0.16, 0.06)
-raise_cancel_btn = Button("Cancel", 0.71, 0.64, 0.16, 0.06)
 leave_btn = Button("Leave", 0.8, 0.9, 0.15, 0.06)
 play_again_btn = Button("Play Again", 0.4, 0.85, 0.2, 0.08)
 leave_table_btn = Button("Leave Table", 0.6, 0.85, 0.2, 0.08)
@@ -394,9 +308,6 @@ current_boss_difficulty = None
 table_intro_shown = {"easy": False, "medium": False, "hard": False}
 show_hand_menu = False
 last_hand_player_won = False
-raise_prompt_active = False
-raise_input_text = ""
-raise_prompt_error = None
 
 ENTRY_COST = {"easy": 50, "medium": 100, "hard": 200}
 escape_menu_active = False
@@ -412,178 +323,6 @@ def add_event(text):
     event_log.append(text)
     if len(event_log) > MAX_LOG_LINES:
         event_log.pop(0)
-
-
-def get_dynamic_raise_limits(game, player=None, default_raise=50):
-    player = player or game.currentPlayer
-    call_amount = game.getCallAmount(player)
-    max_raise = max(0, player.chips - call_amount)
-
-    return {
-        "can_raise": max_raise > 0,
-        "call_amount": call_amount,
-        "max_raise": max_raise,
-        "default_raise": min(default_raise, max_raise),
-    }
-
-
-def process_dynamic_raise(game, raise_amount=None, player=None, all_in=False):
-    player = player or game.currentPlayer
-    limits = get_dynamic_raise_limits(game, player)
-    call_amount = limits["call_amount"]
-    max_raise = limits["max_raise"]
-
-    if all_in:
-        raise_amount = max_raise
-
-    if max_raise <= 0:
-        return {
-            "success": False,
-            "error": "No chips left to raise.",
-            "call_amount": call_amount,
-            "max_raise": max_raise,
-        }
-
-    if raise_amount is None or raise_amount == "":
-        return {
-            "success": False,
-            "error": "Type a raise amount.",
-            "call_amount": call_amount,
-            "max_raise": max_raise,
-        }
-
-    try:
-        raise_amount = int(raise_amount)
-    except ValueError:
-        return {
-            "success": False,
-            "error": "Raise amount must be a number.",
-            "call_amount": call_amount,
-            "max_raise": max_raise,
-        }
-
-    if raise_amount <= 0:
-        return {
-            "success": False,
-            "error": "Enter an amount above $0.",
-            "call_amount": call_amount,
-            "max_raise": max_raise,
-        }
-
-    if raise_amount > max_raise:
-        return {
-            "success": False,
-            "error": f"Max raise is ${max_raise}.",
-            "call_amount": call_amount,
-            "max_raise": max_raise,
-        }
-
-    action = Action("raise", raise_amount)
-    action.processAction(player, game)
-
-    if player == game.human:
-        game.playerActed = True
-    elif player == game.boss:
-        game.bossActed = True
-
-    return {
-        "success": True,
-        "error": None,
-        "action": action,
-        "call_amount": call_amount,
-        "raise_amount": raise_amount,
-        "max_raise": max_raise,
-    }
-
-
-def open_raise_prompt():
-    global raise_prompt_active, raise_input_text, raise_prompt_error
-
-    limits = get_dynamic_raise_limits(poker_game, poker_game.currentPlayer)
-    if not limits["can_raise"]:
-        set_boss_message("No chips left to raise.")
-        return
-
-    raise_prompt_active = True
-    raise_input_text = str(limits["default_raise"])
-    raise_prompt_error = None
-
-
-def close_raise_prompt():
-    global raise_prompt_active, raise_input_text, raise_prompt_error
-    raise_prompt_active = False
-    raise_input_text = ""
-    raise_prompt_error = None
-
-
-def submit_raise_amount(raise_amount=None, current_time=0, all_in=False):
-    global boss_thinking, boss_think_start_time, boss_think_duration, raise_prompt_error
-
-    result = process_dynamic_raise(poker_game, raise_amount, poker_game.currentPlayer, all_in=all_in)
-    if not result["success"]:
-        raise_prompt_error = result["error"]
-        return False
-
-    add_event(f"You raised to ${poker_game.currentBet}")
-    close_raise_prompt()
-
-    boss_thinking = True
-    boss_think_start_time = current_time
-    boss_think_duration = random.randint(500, 2000)
-    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
-    boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
-    set_boss_message(f"{boss_name}: '{dialogue_option}'")
-    return True
-
-
-def submit_typed_raise(current_time):
-    return submit_raise_amount(raise_input_text, current_time)
-
-
-def submit_all_in(current_time):
-    return submit_raise_amount(current_time=current_time, all_in=True)
-
-
-def draw_raise_prompt(surface):
-    if not raise_prompt_active:
-        return
-
-    limits = get_dynamic_raise_limits(poker_game, poker_game.currentPlayer)
-    call_amount = limits["call_amount"]
-    max_raise = limits["max_raise"]
-
-    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 145))
-    surface.blit(overlay, (0, 0))
-
-    panel = pygame.Rect(0, 0, int(WIDTH * 0.5), int(HEIGHT * 0.32))
-    panel.center = (WIDTH // 2, int(HEIGHT * 0.52))
-    pygame.draw.rect(surface, TABLE_GREEN, panel, border_radius=12)
-    pygame.draw.rect(surface, GOLD, panel, 3, border_radius=12)
-
-    title = boss_font.render("Raise Amount", True, GOLD)
-    surface.blit(title, title.get_rect(center=(panel.centerx, panel.top + 36)))
-
-    help_text = font.render(f"Call: ${call_amount}   Max raise: ${max_raise}", True, WHITE)
-    surface.blit(help_text, help_text.get_rect(center=(panel.centerx, panel.top + 72)))
-
-    input_rect = pygame.Rect(0, 0, int(panel.width * 0.42), 46)
-    input_rect.center = (panel.centerx, panel.top + 120)
-    pygame.draw.rect(surface, WHITE, input_rect, border_radius=6)
-    pygame.draw.rect(surface, GOLD, input_rect, 2, border_radius=6)
-
-    typed = raise_input_text if raise_input_text else "0"
-    input_text = font.render(f"${typed}", True, TABLE_GREEN)
-    surface.blit(input_text, input_text.get_rect(center=input_rect.center))
-
-    if raise_prompt_error:
-        error = font.render(raise_prompt_error, True, (255, 120, 120))
-        surface.blit(error, error.get_rect(center=(panel.centerx, panel.top + 158)))
-
-    raise_confirm_btn.draw(surface)
-    raise_all_in_btn.draw(surface)
-    raise_cancel_btn.draw(surface)
-
 
 def update_boss_message(dt_ms):
     global boss_message_timer, boss_message_text
@@ -1003,7 +742,6 @@ def cleanup_poker_state():
     boss_thinking = False
     poker_game = None
     show_hand_menu = False
-    close_raise_prompt()
 
 def check_and_exit_poker_if_defeated():
     global game_state, poker_game, boss_chips, bosses_defeated
@@ -1166,25 +904,6 @@ while running:
                             teleport_player_through_door(direction, wall_thick_x, wall_thick_y)
 
         elif game_state == "poker":
-            if raise_prompt_active:
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        close_raise_prompt()
-                    elif event.key == pygame.K_RETURN:
-                        submit_typed_raise(current_time)
-                    elif event.key == pygame.K_BACKSPACE:
-                        raise_input_text = raise_input_text[:-1]
-                    elif event.unicode.isdigit() and len(raise_input_text) < 7:
-                        raise_input_text += event.unicode
-
-                if raise_confirm_btn.clicked(event):
-                    submit_typed_raise(current_time)
-                if raise_all_in_btn.clicked(event):
-                    submit_all_in(current_time)
-                if raise_cancel_btn.clicked(event):
-                    close_raise_prompt()
-                continue
-
             if not animating and not boss_thinking and not show_hand_menu:
                 if checkCall_btn.clicked(event):
                     callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
@@ -1212,7 +931,20 @@ while running:
                     else:
                         human_player.buffs["peekBossCardUsed"] = True
                 if raise_btn.clicked(event):
-                    open_raise_prompt()
+                    callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
+                    total_needed = callAmount + 50
+                    if total_needed > poker_game.human.chips:
+                        set_boss_message(f"Not enough chips to raise! Need ${total_needed}.")
+                        continue
+                    action = Action("raise", 50)
+                    action.processAction(poker_game.currentPlayer, poker_game)
+                    add_event(f"You raised to ${poker_game.currentBet}")
+                    poker_game.playerActed = True
+                    boss_thinking = True
+                    boss_think_start_time = current_time
+                    boss_think_duration = random.randint(500, 2000)
+                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
+                    set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
                 if fold_btn.clicked(event):
                     action = Action("fold")
                     action.processAction(poker_game.currentPlayer, poker_game)
@@ -1438,7 +1170,7 @@ while running:
                 checkCall_btn.text = "Check"
             else:
                 checkCall_btn.text = f"Call (${callAmount})"
-            raise_btn.text = "Raise"
+            raise_btn.text = "Raise (50$)"
         # Draw dealer cards
         peek_revealed = human_player.buffs.get("peekBossCardUsed", False)
 
@@ -1490,7 +1222,7 @@ while running:
             result_text = "You won the hand!" if last_hand_player_won else "You lost the hand."
             text_surf = font.render(result_text, True, GOLD)
             screen.blit(text_surf, text_surf.get_rect(center=(WIDTH/2, HEIGHT*0.75)))
-        elif poker_game.phase != "handCheck" and not animating and not boss_thinking and not raise_prompt_active:
+        elif poker_game.phase != "handCheck" and not animating and not boss_thinking:
             buttons = [checkCall_btn, raise_btn, fold_btn, leave_btn]
 
             if human_player.buffs.get("peekBossCard", False) and not human_player.buffs.get("peekBossCardUsed", False):
@@ -1501,8 +1233,6 @@ while running:
         elif boss_thinking:
             thinking_text = font.render("Boss is thinking...", True, LIGHT_GOLD)
             screen.blit(thinking_text, thinking_text.get_rect(center=(WIDTH/2, HEIGHT * 0.95)))
-
-        draw_raise_prompt(screen)
         if animating:
             dealing_txt = font.render("Dealing cards...", True, LIGHT_GOLD)
             screen.blit(dealing_txt, dealing_txt.get_rect(center=(WIDTH/2, HEIGHT * 0.95)))
