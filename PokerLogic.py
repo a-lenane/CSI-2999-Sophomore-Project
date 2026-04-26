@@ -38,6 +38,18 @@ class Player:
     def receiveCard(self, card: Card):
         self.hand.append(card)
 
+#helper fucntion for boss calling large bets
+def pressureCallChance(strength, callRatio, stackRatio):
+    if strength == "strongest":
+        return 1
+    if strength == "strong":
+        return .75
+    if strength == "medium":
+        return .35
+    if strength == "playable":
+        return .18
+    return .05
+
 class Boss(Player):
     def __init__(self, name, personality, difficulty):
         super().__init__(name)
@@ -53,6 +65,12 @@ class Boss(Player):
             return Action("call")
         if strength == "medium" and callRatio < 0.5:
             return Action("call")
+        
+        chance = pressureCallChance(strength, callRatio, stackRatio)
+        if callRatio > .75:
+            adjustedChance = chance * (1 - min(callRatio, 1)) * (1 - stackRatio)
+            if random.random() < adjustedChance:
+                return Action("call")
         return Action("fold")
     
     def mediumDecision(self, strength, call, callRatio, stackRatio, game):
@@ -64,12 +82,19 @@ class Boss(Player):
             return Action("check")
         if strength == "strongest":
             return Action("raise", max(50, game.table.pot // 2))
-        if strength == "strong" and callRatio < .6:
+        if strength == "strong" and callRatio < .9:
             return Action("call")
-        if strength == "medium" and callRatio < .25:
+        if strength == "medium" and callRatio < .45:
             return Action("call")
-        if strength == "playable" and call < 50:
+        if strength == "playable" and callRatio < .25:
             return Action("call")
+        ##random call chance against big bets
+        chance = pressureCallChance(strength, callRatio, stackRatio)
+        if callRatio > .75:
+            adjustedChance = chance * (1 - min(callRatio, 1)) * (1 - stackRatio)
+            if random.random() < adjustedChance:
+                return Action("call")
+        
         return Action("fold")
     
     def hardDecision(self, strength, call, callRatio, stackRatio, game):
@@ -85,10 +110,21 @@ class Boss(Player):
             if callRatio < 1.0:
                 return Action("raise", max(50, game.table.pot // 2))
             return Action("call")
-        if strength == "strong" and callRatio < 0.5 and stackRatio < 0.2:
+        if strength == "strong" and callRatio < 0.9 and stackRatio < 0.6:
             return Action("call")
-        if strength == "medium" and callRatio < 0.15 and stackRatio < .08:
+        if strength == "medium" and callRatio < 0.45 and stackRatio < .35:
             return Action("call")
+        if strength == "playable" and callRatio < .2 and stackRatio < .2:
+            return Action("call")
+        if strength == "weak" and callRatio < .12 and stackRatio < .08 and random.random() < .08:
+            return Action("call")
+        
+        chance = pressureCallChance(strength, callRatio, stackRatio)
+        if callRatio > .75:
+            adjustedChance = chance * (1 - min(callRatio, 1)) * (1 - stackRatio)
+            if random.random() < adjustedChance:
+                return Action("call")
+        
         return Action("fold")
     
     def chooseAction(self, game, table, call=0):
