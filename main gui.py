@@ -278,6 +278,7 @@ fold_btn = Button("Fold", 0.6, 0.9, 0.15, 0.06)
 leave_btn = Button("Leave", 0.8, 0.9, 0.15, 0.06)
 play_again_btn = Button("Play Again", 0.4, 0.85, 0.2, 0.08)
 leave_table_btn = Button("Leave Table", 0.6, 0.85, 0.2, 0.08)
+peek_btn = Button("Peek Card", .8, .82, .15, .06)
 
 volume_slider_btn = Button("Volume: 50%", 0.5, 0.4, 0.3, 0.07)
 abandon_btn = Button("Abandon Mission", 0.5, 0.55, 0.3, 0.07)
@@ -665,6 +666,7 @@ def start_poker_game(room, intro_dialogue=True):
 
     poker_game = ActiveGame(human_player, boss_player)
     current_boss_difficulty = diff_str
+    human_player.buffs["peekBossCardUsed"] = False
 
     poker_game.newHand()
     poker_game.table.pot = actual_cost * 2
@@ -783,6 +785,8 @@ while running:
                 human_player.buffs = {
                     "fourCardStraight": False,
                     "fourCardFlush": False,
+                    "peekBossCard": False,
+                    "peekBossCardUsed": False
                 }
                 boss_chips = {"easy": 1000, "medium": 2000, "hard": 4000}
                 bosses_defeated = {"easy": False, "medium": False, "hard": False}
@@ -888,6 +892,13 @@ while running:
                     boss_think_duration = random.randint(500, 2000)
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
                     set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
+                if peek_btn.clicked(event):
+                    if not human_player.buffs.get("peekBossCard", False):
+                        set_boss_message("You don't have the peek buff!")
+                    elif human_player.buffs.get("peekBossCardUsed", False):
+                        set_boss_message("You already Used Peek this game!")
+                    else:
+                        human_player.buffs["peekBossCardUsed"] = True
                 if raise_btn.clicked(event):
                     callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
                     total_needed = callAmount + 50
@@ -1124,10 +1135,13 @@ while running:
                 checkCall_btn.text = f"Call (${callAmount})"
             raise_btn.text = "Raise (50$)"
         # Draw dealer cards
+        peek_revealed = human_player.buffs.get("peekBossCardUsed", False)
+
         for i, card in enumerate(poker_game.boss.hand):
             if ('boss', i) in animating_card_keys:
                 continue
-            if poker_game.phase == "handCheck":
+            
+            if poker_game.phase == "handCheck" or (peek_revealed and i == 0):
                 try:
                     img = pygame.transform.smoothscale(pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png"), (card_w, card_h))
                     screen.blit(img, (dealer_x + i*(card_w + 5), dealer_y))
@@ -1171,7 +1185,12 @@ while running:
             text_surf = font.render(result_text, True, GOLD)
             screen.blit(text_surf, text_surf.get_rect(center=(WIDTH/2, HEIGHT*0.75)))
         elif poker_game.phase != "handCheck" and not animating and not boss_thinking:
-            for btn in [checkCall_btn, raise_btn, fold_btn, leave_btn]:
+            buttons = [checkCall_btn, raise_btn, fold_btn, leave_btn]
+
+            if human_player.buffs.get("peekBossCard", False) and not human_player.buffs.get("peekBossCardUsed", False):
+                buttons.append(peek_btn)
+
+            for btn in buttons:
                 btn.draw(screen)
         elif boss_thinking:
             thinking_text = font.render("Boss is thinking...", True, LIGHT_GOLD)
