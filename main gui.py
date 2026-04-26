@@ -62,7 +62,7 @@ human_player = Player("You")
 human_player.chips = 500
 
 # Progression tracking (boss chip stacks & defeat status)
-boss_chips = {"easy": 1000, "medium": 2000, "hard": 4000}
+#boss_chips = {"easy": 1000, "medium": 2000, "hard": 4000}
 bosses_defeated = {"easy": False, "medium": False, "hard": False}
 
 SAVE_FILE = "savegame.json"
@@ -277,7 +277,7 @@ current_scale_y = 1.0
 
 # Buttons
 checkCall_btn = Button("Check/Call", 0.2, 0.9, 0.15, 0.06)
-raise_btn = Button("Raise (50$)", 0.4, 0.9, 0.15, 0.06)
+raise_btn = Button("Raise", 0.4, 0.9, 0.15, 0.06)
 fold_btn = Button("Fold", 0.6, 0.9, 0.15, 0.06)
 leave_btn = Button("Leave", 0.8, 0.9, 0.15, 0.06)
 play_again_btn = Button("Play Again", 0.4, 0.85, 0.2, 0.08)
@@ -1170,7 +1170,7 @@ while running:
                 checkCall_btn.text = "Check"
             else:
                 checkCall_btn.text = f"Call (${callAmount})"
-            raise_btn.text = "Raise (50$)"
+            raise_btn.text = "Raise"
         # Draw dealer cards
         peek_revealed = human_player.buffs.get("peekBossCardUsed", False)
 
