@@ -53,6 +53,10 @@ title_font = pygame.font.SysFont("arialblack", 80)
 font = pygame.font.SysFont(None, 32)
 boss_font = pygame.font.SysFont("arialblack", 28)
 
+#event log
+event_log = []
+MAX_LOG_LINES = 6
+
 # Persistent player
 human_player = Player("You")
 human_player.chips = 500
@@ -315,6 +319,11 @@ def set_boss_message(msg):
     boss_message_text = msg
     boss_message_timer = 3000
 
+def add_event(text):
+    event_log.append(text)
+    if len(event_log) > MAX_LOG_LINES:
+        event_log.pop(0)
+
 def update_boss_message(dt_ms):
     global boss_message_timer, boss_message_text
     if boss_message_timer > 0:
@@ -334,6 +343,28 @@ def draw_boss_message(surface):
         bg_rect.topleft = (x, y)
         surface.blit(bg_surf, bg_rect)
         surface.blit(msg_surf, msg_surf.get_rect(center=bg_rect.center))
+
+def draw_event_log(surface):
+    box_width = WIDTH * .35
+    box_height = HEIGHT * .25
+    x = WIDTH * .02
+    y = HEIGHT * .68
+
+    bg = pygame.Surface((box_width, box_height), pygame.SRCALPHA)
+    bg.fill((0, 0, 0, 180))
+    surface.blit(bg, (x,y))
+
+    pygame.draw.rect(surface, GOLD, (x,y, box_width, box_height), 2)
+
+    title = font.render("Event Log", True, GOLD)
+    surface.blit(title, (x + 10, y + 8))
+
+    line_y = y + 40
+    for line in event_log:
+        text = font.render(line, True, WHITE)
+        surface.blit(text, (x+10, line_y))
+        line_y += 28
+
 
 def get_card_back_image(scale_x, scale_y):
     card_w = int(BASE_CARD_W * scale_x)
@@ -665,6 +696,7 @@ def start_poker_game(room, intro_dialogue=True):
     boss_player.chips = boss_chips[diff_str]
 
     poker_game = ActiveGame(human_player, boss_player)
+    event_log.clear()
     current_boss_difficulty = diff_str
     human_player.buffs["peekBossCardUsed"] = False
 
@@ -883,8 +915,10 @@ while running:
                         continue
                     if callAmount <= 0:
                         action = Action("check")
+                        add_event("You Checked")
                     else:
                         action = Action("call")
+                        add_event(f"You called ${callAmount}")
                     action.processAction(poker_game.currentPlayer, poker_game)
                     poker_game.playerActed = True
                     boss_thinking = True
@@ -907,6 +941,7 @@ while running:
                         continue
                     action = Action("raise", 50)
                     action.processAction(poker_game.currentPlayer, poker_game)
+                    add_event(f"You raised to ${poker_game.currentBet}")
                     poker_game.playerActed = True
                     boss_thinking = True
                     boss_think_start_time = current_time
@@ -916,6 +951,7 @@ while running:
                 if fold_btn.clicked(event):
                     action = Action("fold")
                     action.processAction(poker_game.currentPlayer, poker_game)
+                    add_event("You folded")
                     poker_game.handWinner = poker_game.boss
                     poker_game.phase = "handCheck"
                     poker_game.phaseIndex = GAMEPHASE.index("handCheck")
@@ -961,6 +997,7 @@ while running:
 
         if boss_thinking and not animating:
             if current_time - boss_think_start_time >= boss_think_duration:
+                boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
                 callAmount = poker_game.getCallAmount(poker_game.boss)
                 if callAmount > poker_game.boss.chips:
                     boss_action = Action("fold")
@@ -969,11 +1006,11 @@ while running:
 
                 boss_action.processAction(poker_game.boss, poker_game)
                 poker_game.bossActed = True
-                boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
 
                 if boss_action.type == "fold":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["fold"])
                     set_boss_message(f"{boss_name}: '{dialogue_option}'")
+                    add_event(f"{boss_name} folded")
                     poker_game.handWinner = poker_game.human
                     poker_game.phase = "handCheck"
                     poker_game.phaseIndex = GAMEPHASE.index("handCheck")
@@ -982,11 +1019,14 @@ while running:
                 elif boss_action.type == "call":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["call"])
                     set_boss_message(f"{boss_name}: '{dialogue_option}' (${callAmount})")
+                    add_event(f"{boss_name} called ${callAmount}")
                 elif boss_action.type == "raise":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["raise"])
                     set_boss_message(f"{boss_name}: '{dialogue_option}' (Raise to ${poker_game.currentBet})")
+                    add_event(f"{boss_name} raised to ${poker_game.currentBet}")
                 elif boss_action.type == "check":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["check"])
+                    add_event(f"{boss_name} checked")
                     set_boss_message(f"{boss_name}: '{dialogue_option}'")
 
                 boss_thinking = False
@@ -1174,6 +1214,7 @@ while running:
         for anim in active_animations:
             anim.draw(screen)
         draw_boss_message(screen)
+        draw_event_log(screen)
         chips_text = font.render(f"Your Chips: ${poker_game.human.chips}", True, WHITE)
         screen.blit(chips_text, (20, HEIGHT - 40))
 
