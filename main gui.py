@@ -4,7 +4,7 @@ import random
 import json
 import os
 from PokerLogic import *
-from DialogueCasino import dialogue, BOSS_DIALOGUE, STORY_PAGES, GAME_OVER_TEXT, ENDING_TEXT
+from DialogueCasino import BOSS_DIALOGUE, STORY_PAGES, GAME_OVER_TEXT, ENDING_TEXT
 
 pygame.init()
 
