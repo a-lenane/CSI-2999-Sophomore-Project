@@ -77,7 +77,7 @@ class Boss(Player):
         if strength in ["strongest", "strong"]:
             return Action("call")
         
-        if strength == "medium" and callRatio < 0.3:
+        if strength == "medium" and callRatio < 0.5:
             return Action("call")
         
         return Action("fold")
@@ -87,6 +87,9 @@ class Boss(Player):
         if call == 0:
             if strength == "strongest":
                 return Action("raise", max(50, game.table.pot // 2))
+
+            if strength == "medium" and random.random() < 0.1:
+                return Action("raise", max(50, game.table.pot // 3))
             
             return Action("check")
             
@@ -114,6 +117,9 @@ class Boss(Player):
             
             if strength == "strong" and random.random() < 0.4:
                 return Action("raise", max(50, game.table.pot // 2))
+
+            if len(game.table.communityCards) > 0 and strength in ["weak", "medium"] and random.random() < 0.2:
+                return Action("raise", max(50, game.table.pot // 3))
             
             return Action("check")
         
@@ -130,6 +136,25 @@ class Boss(Player):
             
         
         return Action("fold")
+
+    def allInDecision(self, strength):
+
+        if strength in ["strongest", "strong"]:
+            return Action("call")
+
+        mediumCallChance = {
+            1: 0.45,
+            2: 0.35,
+            3: 0.25,
+        }.get(self.difficulty, 0.35)
+
+        if strength == "medium" and random.random() < mediumCallChance:
+            return Action("call")
+
+        if self.difficulty == 1 and strength == "playable" and random.random() < 0.2:
+            return Action("call")
+        
+        return Action("fold")
     
     def chooseAction(self, game, table, call=0):
         
@@ -139,7 +164,14 @@ class Boss(Player):
         pot = max(1, game.table.pot)
         callRatio = call / pot
         stackRatio = call / max(1, self.chips)
-        strength = evaluateStartingHand(self.hand[0], self.hand[1])
+
+        if len(game.table.communityCards) == 0:
+            strength = evaluateStartingHand(self.hand[0], self.hand[1])
+        else:
+            strength = evaluatePostFlopStrength(self.hand + game.table.communityCards)
+
+        if call > 0 and game.human.chips <= 0:
+            return self.allInDecision(strength)
 
         if self.difficulty == 1:
             return self.easyDecision(strength, call, callRatio, stackRatio, game)
@@ -174,6 +206,7 @@ class Action:
         elif self.type == "call":
 
             toCall = game.currentBet - player.currentContribution
+            toCall = min(max(0, toCall), player.chips)
 
             player.chips -= toCall
 
@@ -185,9 +218,10 @@ class Action:
 
             toCall = game.currentBet - player.currentContribution
 
-            total = toCall + self.amount
+            total = min(max(0, toCall + self.amount), player.chips)
+            actualRaise = max(0, total - max(0, toCall))
 
-            game.currentBet += self.amount
+            game.currentBet += actualRaise
 
             player.chips -= total
 
@@ -393,42 +427,50 @@ class ActiveGame:
 
 ##_____________functions for evaluating the winning hand____________________"
 
-def flush(cards):
+def flush(cards, needed=5):
     ##create a list for each suit in the hand
-    suits = [c.suit for c in cards]
+    suitCounts = Counter(c.suit for c in cards)
 
-    ##takes the list of suits and creates a set to remove duplicates, returns boolean
-    return len(set(suits)) == 1
+    ##checks that one suit has enough cards to count as a flush
+    return any(count >= needed for count in suitCounts.values())
 
 ##helper function for determining the high card of the flush when comparing two flushes
-def flushKicker(cards):
+def flushKicker(cards, needed=5):
 
-    ranks = [RANK_VALUE[c.rank] for c in cards]
+    suitGroups = {}
+    for c in cards:
+        suitGroups.setdefault(c.suit, []).append(RANK_VALUE[c.rank])
 
-    flushRanks = sorted(ranks, reverse = True)
+    bestFlushRanks = None
+    for ranks in suitGroups.values():
+        if len(ranks) >= needed:
+            current = sorted(ranks, reverse=True)[:needed]
+            if bestFlushRanks is None or current > bestFlushRanks:
+                bestFlushRanks = current
 
-    return flushRanks
+    return bestFlushRanks or []
 
 ##returns the straight high card value if it is a straight, and None of not a straight
-def straightValue(cards):
+def straightValue(cards, needed=5):
 
     ##create a list to hold the cards by value for comparison, then sort from low -> high removing duplicates
-    ranks = [RANK_VALUE[c.rank] for c in cards]
-    
-    ranks = sorted(set(ranks))
+    ranks = sorted(set(RANK_VALUE[c.rank] for c in cards))
 
-    if len(ranks) != 5:
-        return None
+    if 14 in ranks:
+        ranks = [1] + ranks
 
-    if ranks == [2,3,4,5,14]:
-        return 5
-    
-    for i in range(4):
+    streak = 1
+    bestHigh = None
 
-        if ranks[i] + 1 != ranks[i+1]:
-            return None
+    for i in range(1, len(ranks)):
+        if ranks[i] == ranks[i - 1] + 1:
+            streak += 1
+            if streak >= needed:
+                bestHigh = ranks[i]
+        else:
+            streak = 1
         
-    return ranks[-1] 
+    return bestHigh
 
 #all-in-one function for determining if a pair is a full house, four of a kind, three of a kind, two of a kind, two pair,
 # or single pair
@@ -489,14 +531,14 @@ def evaluatePairs(cards):
     ##high card
     return 0, sorted(ranks, reverse = True)
 
-def bestHandOf7(cards7):
+def bestHandOf7(cards7, player=None):
 
     best5 = None
     bestHandScore = None
 
     for hand5 in combinations(cards7, 5):
 
-        handScore = evaluateHand(hand5)
+        handScore = evaluateHand(hand5, player)
 
         if bestHandScore == None or handScore > bestHandScore:
 
@@ -506,13 +548,23 @@ def bestHandOf7(cards7):
     return bestHandScore, best5
 
 #fucntion used by bestHandOf7 to evaluate each players hand
-def evaluateHand(cards):
+def evaluateHand(cards, player=None):
 
-    straight = straightValue(cards)
-    isFlush = flush(cards)
+    straightNeeded = 5
+    flushNeeded = 5
+    playerBuffs = getattr(player, "buffs", {})
+
+    if isinstance(playerBuffs, dict):
+        if playerBuffs.get("fourCardStraight", False):
+            straightNeeded = 4
+        if playerBuffs.get("fourCardFlush", False):
+            flushNeeded = 4
+
+    straight = straightValue(cards, straightNeeded)
+    isFlush = flush(cards, flushNeeded)
 
     if straight is not None and isFlush:
-        return 8 #, [straight]
+        return 8, [straight]
     
     #variable to check if four of a kind or fullhouse
     pairType, PairKickers = evaluatePairs(cards)
@@ -524,7 +576,7 @@ def evaluateHand(cards):
     
     if isFlush:
 
-        return 5, flushKicker(cards)
+        return 5, flushKicker(cards, flushNeeded)
     
     if straight is not None:
 
@@ -532,6 +584,24 @@ def evaluateHand(cards):
     
     #return the lower pair rank or high card if none of the above
     return pairType, PairKickers
+
+def evaluatePostFlopStrength(cards):
+
+    handScore, best5 = bestHandOf7(cards)
+
+    rank = handScore[0] if isinstance(handScore, tuple) else handScore
+
+    if rank >= 5:
+        return "strongest"
+    
+    elif rank >= 3:
+        return "strong"
+    
+    elif rank >= 1:
+        return "medium"
+    
+    else:
+        return "weak"
 
 def evaluateStartingHand(card1, card2):
 
@@ -634,81 +704,82 @@ if __name__ == "__main__":
     print("Best hand:", showCards(best3))
     print()
 
-print("TEST 4")
+if __name__ == "__main__":
 
-hand1 = [
-    Card("ace","spades"),
-    Card("ace","hearts"),
-    Card("9","clubs"),
-    Card("7","diamonds"),
-    Card("3","spades"),
-    Card("2","hearts"),
-    Card("4","clubs")
-]
+    print("TEST 4")
 
-hand2 = [
-    Card("ace","diamonds"),
-    Card("ace","clubs"),
-    Card("9","hearts"),
-    Card("7","clubs"),
-    Card("2","spades"),
-    Card("3","hearts"),
-    Card("5","diamonds")
-]
+    hand1 = [
+        Card("ace","spades"),
+        Card("ace","hearts"),
+        Card("9","clubs"),
+        Card("7","diamonds"),
+        Card("3","spades"),
+        Card("2","hearts"),
+        Card("4","clubs")
+    ]
 
-score1, best1 = bestHandOf7(hand1)
-score2, best2 = bestHandOf7(hand2)
+    hand2 = [
+        Card("ace","diamonds"),
+        Card("ace","clubs"),
+        Card("9","hearts"),
+        Card("7","clubs"),
+        Card("2","spades"),
+        Card("3","hearts"),
+        Card("5","diamonds")
+    ]
 
-print("Hand1:", showCards(hand1), score1)
-print("Hand2:", showCards(hand2), score2)
+    score1, best1 = bestHandOf7(hand1)
+    score2, best2 = bestHandOf7(hand2)
 
-if score1 > score2:
-    print("Hand1 wins")
-elif score2 > score1:
-    print("Hand2 wins")
-else:
-    print("Tie")
+    print("Hand1:", showCards(hand1), score1)
+    print("Hand2:", showCards(hand2), score2)
 
-print()
+    if score1 > score2:
+        print("Hand1 wins")
+    elif score2 > score1:
+        print("Hand2 wins")
+    else:
+        print("Tie")
+
+    print()
 
 
-print("TEST 6")
+    print("TEST 6")
 
-hand1 = [
-    Card("ace","spades"),
-    Card("ace","hearts"),
-    Card("king","clubs"),
-    Card("king","diamonds"),
-    Card("5","spades"),
-    Card("2","hearts"),
-    Card("4","clubs")
-]
+    hand1 = [
+        Card("ace","spades"),
+        Card("ace","hearts"),
+        Card("king","clubs"),
+        Card("king","diamonds"),
+        Card("5","spades"),
+        Card("2","hearts"),
+        Card("4","clubs")
+    ]
 
-hand2 = [
-    Card("ace","diamonds"),
-    Card("ace","clubs"),
-    Card("king","hearts"),
-    Card("king","spades"),
-    Card("3","diamonds"),
-    Card("2","clubs"),
-    Card("4","hearts")
-]
+    hand2 = [
+        Card("ace","diamonds"),
+        Card("ace","clubs"),
+        Card("king","hearts"),
+        Card("king","spades"),
+        Card("3","diamonds"),
+        Card("2","clubs"),
+        Card("4","hearts")
+    ]
 
-score1, best1 = bestHandOf7(hand1)
-score2, best2 = bestHandOf7(hand2)
+    score1, best1 = bestHandOf7(hand1)
+    score2, best2 = bestHandOf7(hand2)
 
-print("Hand1:", showCards(hand1), score1, HAND_TYPE[score1[0]])
-print("Best1:", showCards(best1))
-print("Hand2:", showCards(hand2), score2, HAND_TYPE[score2[0]])
-print("Best2:", showCards(best2))
+    print("Hand1:", showCards(hand1), score1, HAND_TYPE[score1[0]])
+    print("Best1:", showCards(best1))
+    print("Hand2:", showCards(hand2), score2, HAND_TYPE[score2[0]])
+    print("Best2:", showCards(best2))
 
-if score1 > score2:
-    print("Hand1 wins")
-elif score2 > score1:
-    print("Hand2 wins")
-else:
-    print("Tie")
+    if score1 > score2:
+        print("Hand1 wins")
+    elif score2 > score1:
+        print("Hand2 wins")
+    else:
+        print("Tie")
 
-print()
+    print()
       
-

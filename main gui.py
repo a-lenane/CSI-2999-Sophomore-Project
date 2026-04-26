@@ -188,8 +188,8 @@ BASE_TABLE_H = 88
 PLAYER_VISUAL_SCALE = 1.5
 NPC_VISUAL_SCALE = 0.88
 NPC_VISUAL_WIDTH_SCALE = 1.12
-BASE_CARD_W = 35   # based on min(1280,720)/20 = 720/20 = 36, approximate
-BASE_CARD_H = 49   # 2.5:3.5 ratio
+BASE_CARD_W = 80
+BASE_CARD_H = 112
 
 # FONTS
 class PILFontAdapter:
@@ -229,6 +229,9 @@ class PILFontAdapter:
 title_font = PILFontAdapter(80, bold=True)
 font = PILFontAdapter(32)
 boss_font = PILFontAdapter(28, bold=True)
+poker_label_font = PILFontAdapter(24, bold=True)
+poker_button_font = PILFontAdapter(24)
+poker_small_font = PILFontAdapter(18, bold=True)
 
 # --------------------------------------------------
 # UI & OBJECT CLASSES
@@ -248,7 +251,7 @@ class Button:
         self.rect.size = (btn_w, btn_h)
         self.rect.center = (WIDTH * self.x_ratio, HEIGHT * self.y_ratio)
         
-        dynamic_font = PILFontAdapter(int(btn_h * 0.5))
+        dynamic_font = poker_button_font if self.h_ratio <= 0.06 else PILFontAdapter(int(btn_h * 0.5))
         color = GOLD if not self.rect.collidepoint(pygame.mouse.get_pos()) else LIGHT_GOLD
 
         pygame.draw.rect(surface, color, self.rect, border_radius=10)
@@ -447,6 +450,53 @@ def load_image_asset(*path_parts, size=None, pixel_art=False):
     return image
 
 
+def prepare_actor_sprite_surface(surface):
+    cleaned = surface.copy()
+    if pygame.display.get_init() and pygame.display.get_surface() is not None:
+        cleaned = cleaned.convert_alpha()
+
+    width, height = cleaned.get_size()
+    sample_points = {
+        (0, 0),
+        (1, 0),
+        (0, 1),
+        (width - 1, 0),
+        (width - 2, 0),
+        (width - 1, 1),
+        (0, height - 1),
+        (1, height - 1),
+        (0, height - 2),
+        (width - 1, height - 1),
+        (width - 2, height - 1),
+        (width - 1, height - 2),
+    }
+    background_colors = [cleaned.get_at(point)[:3] for point in sample_points]
+    stack = []
+    visited = set()
+
+    for x in range(width):
+        stack.append((x, 0))
+        stack.append((x, height - 1))
+    for y in range(height):
+        stack.append((0, y))
+        stack.append((width - 1, y))
+
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in visited:
+            continue
+        visited.add((x, y))
+        color = cleaned.get_at((x, y))
+        if color.a == 0 or not sprite_loader._matches_background(color, background_colors):
+            continue
+        cleaned.set_at((x, y), (color.r, color.g, color.b, 0))
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= nx < width and 0 <= ny < height:
+                stack.append((nx, ny))
+
+    return sprite_loader._pad_surface(sprite_loader._trim_surface(cleaned))
+
+
 def load_sprite_sheet_frame(asset_name, size, frame_col=0, frame_row=0, cols=4, rows=4):
     cache_key = ("sheet_frame", asset_name, size, frame_col, frame_row, cols, rows)
     if cache_key in IMAGE_CACHE:
@@ -456,7 +506,10 @@ def load_sprite_sheet_frame(asset_name, size, frame_col=0, frame_row=0, cols=4, 
     frame_rect = sprite_loader._grid_frame_rect(sheet, cols, rows, frame_col, frame_row)
     frame = pygame.Surface((frame_rect.width, frame_rect.height), pygame.SRCALPHA)
     frame.blit(sheet, (0, 0), frame_rect)
-    frame = sprite_loader._prepare_sprite_surface(frame)
+    if asset_name in {"gambler.png", "dealer.png", "Boss.png"}:
+        frame = prepare_actor_sprite_surface(frame)
+    else:
+        frame = sprite_loader._prepare_sprite_surface(frame)
     frame = scale_surface_to_rect(frame, pygame.Rect(0, 0, size[0], size[1]))
     IMAGE_CACHE[cache_key] = frame
     return frame
@@ -585,7 +638,7 @@ def set_room_layout(room_idx, scale_x, scale_y):
         ]
         room_props = []
         npcs = [
-            create_table_npc(playable_tables[0], facing="down", sprite_name="dealer.png"),
+            create_table_npc(playable_tables[0], facing="down", sprite_name="gambler.png"),
         ]
         guards = []
     
@@ -609,12 +662,15 @@ current_scale_x = 1.0
 current_scale_y = 1.0
 
 # Poker Buttons 
-checkCall_btn = Button("Check/Call", 0.2, 0.9, 0.15, 0.06)
-raise_btn = Button("Raise (50$)", 0.4, 0.9, 0.15, 0.06)
-fold_btn = Button("Fold", 0.6, 0.9, 0.15, 0.06)
-leave_btn = Button("Leave", 0.8, 0.9, 0.15, 0.06)
+checkCall_btn = Button("Check/Call", 0.2, 0.86, 0.15, 0.06)
+raise_btn = Button("Raise (50$)", 0.4, 0.86, 0.15, 0.06)
+fold_btn = Button("Fold", 0.6, 0.86, 0.15, 0.06)
+leave_btn = Button("Leave", 0.8, 0.86, 0.15, 0.06)
 play_again_btn = Button("Play Again", 0.4, 0.85, 0.2, 0.08)
 leave_table_btn = Button("Leave Table", 0.6, 0.85, 0.2, 0.08)
+raise_confirm_btn = Button("Confirm", 0.39, 0.64, 0.16, 0.06)
+raise_all_in_btn = Button("All In", 0.55, 0.64, 0.16, 0.06)
+raise_cancel_btn = Button("Cancel", 0.71, 0.64, 0.16, 0.06)
 
 # Menu buttons
 volume_slider_btn = Button("Volume: 50%", 0.5, 0.4, 0.3, 0.07)
@@ -623,9 +679,10 @@ save_exit_btn = Button("Save & Exit", 0.5, 0.7, 0.3, 0.07)
 resume_btn = Button("Resume", 0.5, 0.85, 0.3, 0.07)
 
 # Main menu buttons
-new_game_btn = Button("New Game", 0.5, 0.4, 0.3, 0.08)
-continue_btn = Button("Continue", 0.5, 0.55, 0.3, 0.08)
-quit_main_btn = Button("Quit", 0.5, 0.7, 0.3, 0.08)
+new_game_btn = Button("New Game", 0.5, 0.34, 0.3, 0.08)
+free_play_btn = Button("Free Play", 0.5, 0.48, 0.3, 0.08)
+continue_btn = Button("Continue", 0.5, 0.62, 0.3, 0.08)
+quit_main_btn = Button("Quit", 0.5, 0.76, 0.3, 0.08)
 
 # Animation globals
 deck_pos = (WIDTH * 0.1, HEIGHT * 0.5)
@@ -643,6 +700,10 @@ current_boss_difficulty = None
 table_intro_shown = {"easy": False, "medium": False, "hard": False}
 show_hand_menu = False
 last_hand_player_won = False
+player_raised_this_hand = False
+raise_prompt_active = False
+raise_input_text = ""
+raise_prompt_error = None
 ENTRY_COST = {"easy": 50, "medium": 100, "hard": 200}
 escape_menu_active = False
 story_mode_active = False
@@ -651,7 +712,7 @@ SAVE_FILE = PROJECT_ROOT / "savegame.json"
 
 
 def default_boss_chips():
-    return {"easy": 1000, "medium": 2000, "hard": 4000}
+    return {"easy": 1000, "medium": 750, "hard": 500}
 
 
 def save_game():
@@ -711,6 +772,22 @@ def reset_new_game():
     story_mode_active = True
     current_story_page = 0
 
+
+def reset_free_play():
+    global table_intro_shown, current_room, story_mode_active, current_story_page
+    persistent_player.chips = 5000
+    persistent_player.beaten_bosses = ["easy", "medium"]
+    persistent_player.buffs = ["Lucky Draw", "High Roller", "All-In Fury"]
+    persistent_player.second_chance_used = False
+    persistent_player.boss_chips = default_boss_chips()
+    table_intro_shown = {"easy": True, "medium": True, "hard": True}
+    current_room = 0
+    player.x_ratio = 0.3
+    player.y_ratio = 0.5
+    recalculate_elements()
+    story_mode_active = False
+    current_story_page = 0
+
 def set_boss_message(msg):
     global boss_message_text, boss_message_timer
     boss_message_text = msg
@@ -738,6 +815,104 @@ def draw_boss_message(surface):
         bg_rect.topleft = (x, y)
         screen.blit(bg_surf, bg_rect)
         screen.blit(msg_surf, msg_surf.get_rect(center=bg_rect.center))
+
+
+def open_raise_prompt():
+    global raise_prompt_active, raise_input_text, raise_prompt_error
+    call_amount = poker_game.getCallAmount(poker_game.currentPlayer)
+    max_raise = poker_game.human.chips - call_amount
+    if max_raise <= 0:
+        set_boss_message("No chips left to raise.")
+        return
+
+    default_raise = 100 if persistent_player.has_buff("All-In Fury") else 50
+    raise_prompt_active = True
+    raise_input_text = str(min(default_raise, max_raise))
+    raise_prompt_error = None
+
+
+def close_raise_prompt():
+    global raise_prompt_active, raise_input_text, raise_prompt_error
+    raise_prompt_active = False
+    raise_input_text = ""
+    raise_prompt_error = None
+
+
+def submit_raise_amount(raise_amount, current_time):
+    global boss_thinking, boss_think_start_time, boss_think_duration, player_raised_this_hand, raise_prompt_error
+
+    call_amount = poker_game.getCallAmount(poker_game.currentPlayer)
+    max_raise = poker_game.human.chips - call_amount
+    if raise_amount <= 0:
+        raise_prompt_error = "Enter an amount above $0."
+        return False
+    if raise_amount > max_raise:
+        raise_prompt_error = f"Max raise is ${max_raise}."
+        return False
+
+    action = Action("raise", raise_amount)
+    action.processAction(poker_game.currentPlayer, poker_game)
+    poker_game.playerActed = True
+    player_raised_this_hand = True
+    close_raise_prompt()
+
+    boss_thinking = True
+    boss_think_start_time = current_time
+    boss_think_duration = random.randint(500, 2000)
+    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
+    set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
+    return True
+
+
+def submit_typed_raise(current_time):
+    global raise_prompt_error
+    if not raise_input_text:
+        raise_prompt_error = "Type a raise amount."
+        return False
+    return submit_raise_amount(int(raise_input_text), current_time)
+
+
+def submit_all_in(current_time):
+    call_amount = poker_game.getCallAmount(poker_game.currentPlayer)
+    return submit_raise_amount(poker_game.human.chips - call_amount, current_time)
+
+
+def draw_raise_prompt(surface):
+    if not raise_prompt_active:
+        return
+
+    call_amount = poker_game.getCallAmount(poker_game.currentPlayer)
+    max_raise = max(0, poker_game.human.chips - call_amount)
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 145))
+    surface.blit(overlay, (0, 0))
+
+    panel = pygame.Rect(0, 0, int(WIDTH * 0.5), int(HEIGHT * 0.32))
+    panel.center = (WIDTH // 2, int(HEIGHT * 0.52))
+    pygame.draw.rect(surface, TABLE_GREEN, panel, border_radius=12)
+    pygame.draw.rect(surface, GOLD, panel, 3, border_radius=12)
+
+    title = poker_label_font.render("Raise Amount", True, GOLD)
+    surface.blit(title, title.get_rect(center=(panel.centerx, panel.top + 36)))
+
+    help_text = poker_small_font.render(f"Call: ${call_amount}   Max raise: ${max_raise}", True, WHITE)
+    surface.blit(help_text, help_text.get_rect(center=(panel.centerx, panel.top + 68)))
+
+    input_rect = pygame.Rect(0, 0, int(panel.width * 0.42), 46)
+    input_rect.center = (panel.centerx, panel.top + 116)
+    pygame.draw.rect(surface, WHITE, input_rect, border_radius=6)
+    pygame.draw.rect(surface, GOLD, input_rect, 2, border_radius=6)
+    typed = raise_input_text if raise_input_text else "0"
+    input_text = poker_label_font.render(f"${typed}", True, TABLE_GREEN)
+    surface.blit(input_text, input_text.get_rect(center=input_rect.center))
+
+    if raise_prompt_error:
+        error = poker_small_font.render(raise_prompt_error, True, (255, 120, 120))
+        surface.blit(error, error.get_rect(center=(panel.centerx, panel.top + 154)))
+
+    raise_confirm_btn.draw(surface)
+    raise_all_in_btn.draw(surface)
+    raise_cancel_btn.draw(surface)
 
 # Card back image (scaled independently)
 def get_card_back_image(scale_x, scale_y):
@@ -1030,7 +1205,7 @@ def get_target_position_for_card(card, card_index, card_type):
         return (x_hand + card_index * spacing + card_w/2, HEIGHT * 0.65 + card_h/2)
     elif card_type == 'boss':
         dealer_x = 60
-        dealer_y = HEIGHT * 0.12
+        dealer_y = HEIGHT * 0.16
         return (dealer_x + card_index * spacing + card_w/2, dealer_y + card_h/2)
     elif card_type == 'community':
         total_community = len(poker_game.table.communityCards) if poker_game else 0
@@ -1105,7 +1280,7 @@ def draw_deck(surface):
     deck_rect.center = deck_pos
     pygame.draw.rect(surface, (100, 50, 0), deck_rect, border_radius=5)
     pygame.draw.rect(surface, GOLD, deck_rect, 3, border_radius=5)
-    deck_text = font.render("DECK", True, WHITE)
+    deck_text = poker_label_font.render("DECK", True, WHITE)
     surface.blit(deck_text, deck_text.get_rect(center=deck_rect.center))
 
 
@@ -1117,11 +1292,187 @@ def room_difficulty(room):
     return "hard", 3
 
 
+def card_label(card):
+    return f"{card.rank} of {card.suit}"
+
+
+def starting_hand_score(cards):
+    category_scores = {
+        "weak": 0,
+        "playable": 1,
+        "medium": 2,
+        "strong": 3,
+        "strongest": 4,
+    }
+    category = evaluateStartingHand(cards[0], cards[1])
+    high_cards = sorted((RANK_VALUE[card.rank] for card in cards), reverse=True)
+    return (category_scores[category], high_cards)
+
+
+def best_two_card_start(cards):
+    best_pair = list(cards[:2])
+    best_score = starting_hand_score(best_pair)
+    for i in range(len(cards)):
+        for j in range(i + 1, len(cards)):
+            pair = [cards[i], cards[j]]
+            score = starting_hand_score(pair)
+            if score > best_score:
+                best_score = score
+                best_pair = pair
+    return best_pair
+
+
+def apply_start_of_hand_buffs():
+    if poker_game is None or not persistent_player.has_buff("Lucky Draw"):
+        return
+
+    current_score = starting_hand_score(poker_game.human.hand)
+    if current_score[0] > 1 or not poker_game.deck.cards:
+        return
+
+    extra_card = poker_game.deck.drawCard()
+    old_hand = poker_game.human.hand[:]
+    best_hand = best_two_card_start(old_hand + [extra_card])
+    if starting_hand_score(best_hand) > current_score:
+        poker_game.human.hand = best_hand
+        replaced = next((card for card in old_hand if card not in best_hand), None)
+        if replaced is not None:
+            set_boss_message(f"Lucky Draw swapped {card_label(replaced)} for {card_label(extra_card)}.")
+
+
+def transfer_bonus_from_boss(amount):
+    if poker_game is None or amount <= 0:
+        return 0
+    bonus = min(amount, max(0, poker_game.boss.chips))
+    poker_game.boss.chips -= bonus
+    poker_game.human.chips += bonus
+    return bonus
+
+
+def transfer_refund_from_boss(amount):
+    if poker_game is None or amount <= 0:
+        return 0
+    refund = min(amount, max(0, poker_game.boss.chips))
+    poker_game.boss.chips -= refund
+    poker_game.human.chips += refund
+    return refund
+
+
+def apply_post_hand_buffs(winner, pot_before):
+    messages = []
+
+    if winner == poker_game.human:
+        bonus_rate = 0.0
+        if persistent_player.has_buff("High Roller"):
+            bonus_rate += 0.25
+        if persistent_player.has_buff("All-In Fury") and player_raised_this_hand:
+            bonus_rate += 0.50
+
+        bonus = transfer_bonus_from_boss(int(pot_before * bonus_rate))
+        if bonus > 0:
+            if bonus_rate >= 0.75:
+                messages.append(f"High Roller + All-In Fury bonus: +${bonus}")
+            elif persistent_player.has_buff("High Roller"):
+                messages.append(f"High Roller bonus: +${bonus}")
+            else:
+                messages.append(f"All-In Fury bonus: +${bonus}")
+
+    elif winner == poker_game.boss and persistent_player.has_buff("Chip Shield"):
+        refund = transfer_refund_from_boss(int(pot_before * 0.30))
+        if refund > 0:
+            messages.append(f"Chip Shield refunded ${refund}")
+
+    if messages:
+        set_boss_message(" | ".join(messages))
+
+
+def resolve_hand_with_buffs():
+    pot_before = poker_game.table.pot
+
+    if poker_game.handWinner is not None:
+        winner = poker_game.handWinner
+        rank = None
+        poker_game.awardPot(winner)
+        apply_post_hand_buffs(winner, pot_before)
+        return winner, rank
+
+    player_cards = poker_game.human.hand + poker_game.table.communityCards
+    boss_cards = poker_game.boss.hand + poker_game.table.communityCards
+    player_rank, _ = bestHandOf7(player_cards)
+    boss_rank, _ = bestHandOf7(boss_cards)
+
+    if boss_rank > player_rank and persistent_player.has_buff("Second Chance") and not persistent_player.second_chance_used:
+        persistent_player.second_chance_used = True
+        split_pot = poker_game.table.pot // 2
+        poker_game.human.chips += split_pot
+        poker_game.boss.chips += poker_game.table.pot - split_pot
+        poker_game.table.pot = 0
+        set_boss_message("Second Chance saved the hand and forced a split pot.")
+        return None, player_rank
+
+    if player_rank > boss_rank:
+        winner = poker_game.human
+        poker_game.human.chips += poker_game.table.pot
+        print(f"{poker_game.human.name} wins with {HAND_TYPE[player_rank[0]]}")
+    elif boss_rank > player_rank:
+        winner = poker_game.boss
+        poker_game.boss.chips += poker_game.table.pot
+        print(f"{poker_game.boss.name} wins with {HAND_TYPE[boss_rank[0]]}")
+    else:
+        winner = None
+        split_pot = poker_game.table.pot // 2
+        poker_game.human.chips += split_pot
+        poker_game.boss.chips += poker_game.table.pot - split_pot
+        print(f"tie with {HAND_TYPE[player_rank[0]]}")
+
+    poker_game.table.pot = 0
+    apply_post_hand_buffs(winner, pot_before)
+    return winner, player_rank
+
+
+def force_showdown_after_all_in():
+    if poker_game is None or poker_game.phase == "handCheck":
+        return
+
+    while len(poker_game.table.communityCards) < 5 and poker_game.deck.cards:
+        poker_game.table.addCard(poker_game.deck.drawCard())
+
+    poker_game.phase = "handCheck"
+    poker_game.phaseIndex = GAMEPHASE.index("handCheck")
+    poker_game.playerActed = False
+    poker_game.bossActed = False
+    detect_and_animate_new_cards()
+
+
+def refund_uncalled_all_in_chips():
+    if poker_game is None:
+        return 0
+
+    human = poker_game.human
+    boss = poker_game.boss
+    refund = 0
+
+    if human.currentContribution > boss.currentContribution and boss.chips <= 0:
+        refund = human.currentContribution - boss.currentContribution
+        human.currentContribution -= refund
+        human.chips += refund
+    elif boss.currentContribution > human.currentContribution and human.chips <= 0:
+        refund = boss.currentContribution - human.currentContribution
+        boss.currentContribution -= refund
+        boss.chips += refund
+
+    if refund > 0:
+        poker_game.table.pot = max(0, poker_game.table.pot - refund)
+        poker_game.currentBet = max(human.currentContribution, boss.currentContribution)
+
+    return refund
+
+
 def start_poker_game(room, intro_dialogue=True):
     """Create a poker game using the persistent player and boss chip stacks."""
     global poker_game, current_boss_difficulty, boss_thinking, boss_think_start_time, boss_think_duration
     global show_hand_menu, prev_human_cards, prev_boss_cards, prev_community_cards
-    global animating, boss_message_text
+    global animating, boss_message_text, player_raised_this_hand
 
     diff_str, diff_num = room_difficulty(room)
     actual_cost = min(ENTRY_COST[diff_str], persistent_player.boss_chips[diff_str])
@@ -1156,7 +1507,10 @@ def start_poker_game(room, intro_dialogue=True):
 
     poker_game = ActiveGame(human_player, boss_player)
     current_boss_difficulty = diff_str
+    boss_message_text = None
+    player_raised_this_hand = False
     poker_game.newHand()
+    apply_start_of_hand_buffs()
     poker_game.table.pot = actual_cost * 2
 
     prev_human_cards = []
@@ -1167,7 +1521,6 @@ def start_poker_game(room, intro_dialogue=True):
     animating_card_keys.clear()
     detect_and_animate_new_cards()
 
-    boss_message_text = None
     boss_thinking = False
     boss_think_start_time = 0
     boss_think_duration = 0
@@ -1192,7 +1545,7 @@ def restart_poker_game():
 
 def cleanup_poker_state():
     global active_animations, animating, animating_card_keys, prev_human_cards, prev_boss_cards, prev_community_cards
-    global boss_message_text, boss_message_timer, boss_thinking, poker_game, show_hand_menu
+    global boss_message_text, boss_message_timer, boss_thinking, poker_game, show_hand_menu, player_raised_this_hand
     active_animations.clear()
     animating = False
     animating_card_keys.clear()
@@ -1204,6 +1557,8 @@ def cleanup_poker_state():
     boss_thinking = False
     poker_game = None
     show_hand_menu = False
+    player_raised_this_hand = False
+    close_raise_prompt()
 
 
 def check_and_exit_poker_if_defeated():
@@ -1268,6 +1623,9 @@ while running:
             if new_game_btn.clicked(event):
                 reset_new_game()
                 game_state = "story"
+            if free_play_btn.clicked(event):
+                reset_free_play()
+                game_state = "world"
             if continue_btn.clicked(event):
                 if load_game():
                     game_state = "world"
@@ -1336,15 +1694,35 @@ while running:
                             teleport_player_through_door(direction)
 
         elif game_state == "poker":
+            if raise_prompt_active:
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        close_raise_prompt()
+                    elif event.key == pygame.K_RETURN:
+                        submit_typed_raise(current_time)
+                    elif event.key == pygame.K_BACKSPACE:
+                        raise_input_text = raise_input_text[:-1]
+                    elif event.unicode.isdigit() and len(raise_input_text) < 7:
+                        raise_input_text += event.unicode
+
+                if raise_confirm_btn.clicked(event):
+                    submit_typed_raise(current_time)
+                if raise_all_in_btn.clicked(event):
+                    submit_all_in(current_time)
+                if raise_cancel_btn.clicked(event):
+                    close_raise_prompt()
+                continue
+
             if not animating and not boss_thinking and not show_hand_menu:
                 if checkCall_btn.clicked(event):
                     callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
-                    if callAmount > poker_game.human.chips:
-                        set_boss_message("Not enough chips to call!")
-                        continue
                     action = Action("check") if callAmount <= 0 else Action("call")
                     action.processAction(poker_game.currentPlayer, poker_game)
+                    refund_uncalled_all_in_chips()
                     poker_game.playerActed = True
+                    if action.type == "call" and (poker_game.human.chips <= 0 or poker_game.boss.chips <= 0):
+                        force_showdown_after_all_in()
+                        continue
                     boss_thinking = True
                     boss_think_start_time = current_time
                     boss_think_duration = random.randint(500, 2000)
@@ -1352,19 +1730,7 @@ while running:
                     set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
 
                 if raise_btn.clicked(event):
-                    callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
-                    total_needed = callAmount + 50
-                    if total_needed > poker_game.human.chips:
-                        set_boss_message(f"Not enough chips to raise! Need ${total_needed}.")
-                        continue
-                    action = Action("raise", 50)
-                    action.processAction(poker_game.currentPlayer, poker_game)
-                    poker_game.playerActed = True
-                    boss_thinking = True
-                    boss_think_start_time = current_time
-                    boss_think_duration = random.randint(500, 2000)
-                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
-                    set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
+                    open_raise_prompt()
 
                 if fold_btn.clicked(event):
                     action = Action("fold")
@@ -1425,12 +1791,12 @@ while running:
         if boss_thinking and not animating:
             if current_time - boss_think_start_time >= boss_think_duration:
                 callAmount = poker_game.getCallAmount(poker_game.boss)
-                if callAmount > poker_game.boss.chips:
-                    boss_action = Action("fold")
-                else:
-                    boss_action = poker_game.boss.chooseAction(poker_game, poker_game.table, callAmount)
+                boss_action = poker_game.boss.chooseAction(poker_game, poker_game.table, callAmount)
 
+                boss_contribution_before = poker_game.boss.currentContribution
                 boss_action.processAction(poker_game.boss, poker_game)
+                boss_paid = poker_game.boss.currentContribution - boss_contribution_before
+                refund_uncalled_all_in_chips()
                 poker_game.bossActed = True
                 boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
 
@@ -1444,7 +1810,8 @@ while running:
                     poker_game.bossActed = False
                 elif boss_action.type == "call":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["call"])
-                    set_boss_message(f"{boss_name}: '{dialogue_option}' (${callAmount})")
+                    all_in_note = " all in" if poker_game.boss.chips <= 0 else ""
+                    set_boss_message(f"{boss_name}: '{dialogue_option}' (${boss_paid}{all_in_note})")
                 elif boss_action.type == "raise":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["raise"])
                     set_boss_message(f"{boss_name}: '{dialogue_option}' (Raise to ${poker_game.currentBet})")
@@ -1453,6 +1820,9 @@ while running:
                     set_boss_message(f"{boss_name}: '{dialogue_option}'")
 
                 boss_thinking = False
+
+                if boss_action.type == "call" and (poker_game.human.chips <= 0 or poker_game.boss.chips <= 0):
+                    force_showdown_after_all_in()
 
         if not animating and not boss_thinking:
             if poker_game.phase != "handCheck" and poker_game.playerActed and poker_game.bossActed:
@@ -1473,14 +1843,7 @@ while running:
                 poker_game.changePhase()
                 detect_and_animate_new_cards()
             elif poker_game.phase == "handCheck" and not poker_game.showdownDone:
-                # if player folded
-                if poker_game.handWinner is not None:
-                    poker_game.awardPot(poker_game.handWinner)
-                    winner = poker_game.handWinner
-                    rank = None
-                # if player did not fold
-                else:
-                    winner, rank = poker_game.showDown()
+                winner, rank = resolve_hand_with_buffs()
                 poker_game.showdownDone = True
                 persistent_player.chips = poker_game.human.chips
                 persistent_player.boss_chips[current_boss_difficulty] = poker_game.boss.chips
@@ -1496,6 +1859,7 @@ while running:
         title = title_font.render("TEXAS HOLD'EM", True, GOLD)
         screen.blit(title, title.get_rect(center=(WIDTH/2, HEIGHT*0.2)))
         new_game_btn.draw(screen)
+        free_play_btn.draw(screen)
         continue_btn.draw(screen)
         quit_main_btn.draw(screen)
         draw_boss_message(screen)
@@ -1525,6 +1889,9 @@ while running:
 
         chips_text = font.render(f"Chips: ${persistent_player.chips}", True, WHITE)
         screen.blit(chips_text, (WIDTH - 180, 20))
+        if persistent_player.buffs:
+            buff_text = font.render("Buffs: " + ", ".join(persistent_player.buffs), True, LIGHT_GOLD)
+            screen.blit(buff_text, (20, 20))
         
         # Show interaction prompts
         if near_table():
@@ -1576,7 +1943,8 @@ while running:
     
     elif game_state == "poker":
         draw_poker_background(screen, current_room)
-        pot_txt = font.render(f"Pot: ${poker_game.table.pot}", True, WHITE); screen.blit(pot_txt, pot_txt.get_rect(center=(WIDTH/2, HEIGHT/10)))
+        pot_txt = poker_label_font.render(f"Pot: ${poker_game.table.pot}", True, WHITE)
+        screen.blit(pot_txt, pot_txt.get_rect(center=(WIDTH/2, HEIGHT * 0.14)))
 
         card_w = int(BASE_CARD_W * current_scale_x)
         card_h = int(BASE_CARD_H * current_scale_y)
@@ -1585,9 +1953,9 @@ while running:
 
         # --- DEALER HAND ---
         dealer_x = 60
-        dealer_y = HEIGHT * 0.12
+        dealer_y = HEIGHT * 0.16
         boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
-        dealer_label = font.render(f"{boss_name} Chips: ${poker_game.boss.chips}", True, GOLD)
+        dealer_label = poker_label_font.render(f"{boss_name} Chips: ${poker_game.boss.chips}", True, GOLD)
         screen.blit(dealer_label, (dealer_x, dealer_y - 30))
 
         # --- Update Button Text ----
@@ -1599,7 +1967,7 @@ while running:
             else:
                 checkCall_btn.text = f"Call (${callAmount})"
 
-            raise_btn.text = "Raise (50$)"
+            raise_btn.text = "Raise"
         
         # Draw dealer cards (skip animating ones)
         for i, card in enumerate(poker_game.boss.hand):
@@ -1645,8 +2013,11 @@ while running:
 
         # Draw boss action message
         draw_boss_message(screen)
-        chips_text = font.render(f"Your Chips: ${poker_game.human.chips}", True, WHITE)
-        screen.blit(chips_text, (20, HEIGHT - 40))
+        chips_text = poker_label_font.render(f"Your Chips: ${poker_game.human.chips}", True, WHITE)
+        screen.blit(chips_text, (16, HEIGHT - 30))
+        if persistent_player.buffs:
+            buff_text = poker_small_font.render("Buffs: " + ", ".join(persistent_player.buffs), True, LIGHT_GOLD)
+            screen.blit(buff_text, (16, HEIGHT - 56))
 
         if show_hand_menu and not animating:
             if persistent_player.boss_chips[current_boss_difficulty] > 0:
@@ -1655,7 +2026,7 @@ while running:
             result_text = "You won the hand!" if last_hand_player_won else "You lost the hand."
             text_surf = font.render(result_text, True, GOLD)
             screen.blit(text_surf, text_surf.get_rect(center=(WIDTH/2, HEIGHT*0.75)))
-        elif poker_game.phase != "handCheck" and not animating and not boss_thinking:
+        elif poker_game.phase != "handCheck" and not animating and not boss_thinking and not raise_prompt_active:
             for btn in [checkCall_btn, raise_btn, fold_btn, leave_btn]:
                 btn.draw(screen)
         elif boss_thinking:
@@ -1665,6 +2036,8 @@ while running:
         if animating:
             dealing_txt = font.render("Dealing cards...", True, LIGHT_GOLD)
             screen.blit(dealing_txt, dealing_txt.get_rect(center=(WIDTH/2, HEIGHT * 0.95)))
+
+        draw_raise_prompt(screen)
 
     elif game_state == "game_over":
         screen.fill((0, 0, 0))

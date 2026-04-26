@@ -9,8 +9,8 @@ class Player:
         self.beaten_bosses = []  # Track which difficulties beaten
         self.boss_chips = {
             "easy": 1000,
-            "medium": 2000,
-            "hard": 4000,
+            "medium": 750,
+            "hard": 500,
         }
 
     def add_buff(self, buff_name):
