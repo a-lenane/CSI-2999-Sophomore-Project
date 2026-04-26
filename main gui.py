@@ -2,18 +2,22 @@ import pygame
 import sys
 import random
 import json
-import os
-from PokerLogic import *
-from DialogueCasino import dialogue, BOSS_DIALOGUE, STORY_PAGES, GAME_OVER_TEXT, ENDING_TEXT
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+from PokerLogic import *  
+from sprite_loader import SpriteLoader
+from DialogueCasino import BOSS_DIALOGUE, STORY_PAGES, GAME_OVER_TEXT, ENDING_TEXT
 from Buffs import Player as PersistentPlayer
 
 """
 TODO:
 - hide dealer cards (diff card backs for diff dealers?)
-- menu to adjust bet amount (maybe buttons like, bet 1x, bet 2x, bet 5x)
-- using ChipsAndCode to assess hands, can maybe show optimal hand to player during play
+- menu to adjust bet amount (mayb  buttons like, bet 1x, bet 2x, bet 5x)
+- player money tracking
+- using ChipsAndCode to assess hands, can mayb show optimal hand to player during play
+- determine a winner (+ payout)
 - where get buffs (store?)
-- hide player cards until click "deal" button
+- hide player cards untill click "deal" button
 - dynamic adjustments for each turn, such as "deal" being only option, then only "check" or "bet", then "check", "bet" or fold, with game finish handling
 - buff menu / info 
 - dealer sprites when open table
@@ -22,9 +26,121 @@ TODO:
 
 pygame.init()
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+ASSET_SEARCH_ROOTS = [
+    PROJECT_ROOT / "Assets",
+    PROJECT_ROOT / "assets",
+    PROJECT_ROOT,
+]
+IMAGE_CACHE = {}
+WORLD_TILE_SIZE = 64
+sprite_loader = SpriteLoader(tile_size=WORLD_TILE_SIZE)
+world_object_surfaces = sprite_loader.load_tilesheet_objects()
+
+
+def scale_surface_to_rect(surface, rect, pixel_art=True):
+    target_size = (max(1, int(rect.width)), max(1, int(rect.height)))
+    scaler = pygame.transform.scale if pixel_art else pygame.transform.smoothscale
+    return scaler(surface, target_size)
+
+
+def get_world_scale(scale_x=None, scale_y=None):
+    scale_x = current_scale_x if scale_x is None else scale_x
+    scale_y = current_scale_y if scale_y is None else scale_y
+    return max(0.55, min(scale_x, scale_y))
+
+
+def get_world_floor_tile(room_idx, tile_size):
+    floor_name = {
+        0: "wood_floor_warm",
+        1: "office_floor",
+        2: "vault_floor",
+    }.get(room_idx, "wood_floor_dark")
+    return scale_surface_to_rect(
+        sprite_loader.get_tile(floor_name),
+        pygame.Rect(0, 0, tile_size[0], tile_size[1]),
+    )
+
+
+def get_world_prop_surface(name, rect):
+    if name in SpriteLoader.TILE_FILES:
+        surface = sprite_loader.get_tile(name)
+    else:
+        surface = world_object_surfaces[name]
+    return scale_surface_to_rect(surface, rect)
+
+
+def scale_surface_contained(surface, bounds):
+    source_w, source_h = surface.get_size()
+    if source_w <= 0 or source_h <= 0:
+        return surface
+    scale = min(bounds.width / source_w, bounds.height / source_h)
+    target_size = (
+        max(1, int(source_w * scale)),
+        max(1, int(source_h * scale)),
+    )
+    return pygame.transform.scale(surface, target_size)
+
+
+def draw_world_prop(surface, name, bounds):
+    if name in SpriteLoader.TILE_FILES:
+        prop = get_world_prop_surface(name, bounds)
+        surface.blit(prop, bounds.topleft)
+        return
+
+    prop = scale_surface_contained(world_object_surfaces[name], bounds)
+    prop_rect = prop.get_rect(midbottom=(bounds.centerx, bounds.bottom))
+    surface.blit(prop, prop_rect.topleft)
+
+
+def draw_door_hint(surface, door):
+    if door.rect.collidepoint(pygame.mouse.get_pos()):
+        pygame.draw.rect(surface, GOLD, door.rect, 2)
+
+
+def draw_shadow(surface, anchor_rect, width_ratio=0.7, height_ratio=0.22, alpha=75):
+    shadow_w = max(12, int(anchor_rect.width * width_ratio))
+    shadow_h = max(6, int(anchor_rect.height * height_ratio))
+    shadow = pygame.Surface((shadow_w, shadow_h), pygame.SRCALPHA)
+    pygame.draw.ellipse(shadow, (0, 0, 0, alpha), shadow.get_rect())
+    shadow_rect = shadow.get_rect(center=(anchor_rect.centerx, anchor_rect.bottom - shadow_h // 3))
+    surface.blit(shadow, shadow_rect)
+
+
+def draw_table(surface, table_rect):
+    rug_rect = table_rect.inflate(int(table_rect.width * 0.18), int(table_rect.height * 0.08))
+    rug_rect.centery += int(table_rect.height * 0.14)
+    rug = get_world_prop_surface("green_rug", rug_rect).copy()
+    rug.set_alpha(38)
+    surface.blit(rug, rug_rect.topleft)
+
+    draw_shadow(surface, table_rect, width_ratio=0.82, height_ratio=0.2, alpha=110)
+
+    sprite_bounds = table_rect.inflate(int(table_rect.width * 0.06), int(table_rect.height * 0.18))
+    table_surface = scale_surface_contained(world_object_surfaces["poker_table"], sprite_bounds)
+    table_surface_rect = table_surface.get_rect(
+        midbottom=(table_rect.centerx, table_rect.bottom + max(2, table_rect.height // 18))
+    )
+    surface.blit(table_surface, table_surface_rect.topleft)
+
+
+def draw_depth_sorted_world_objects(surface):
+    draw_items = []
+    for table in tables:
+        draw_items.append((table.bottom, lambda target, rect=table: draw_table(target, rect)))
+    for npc in npcs:
+        draw_items.append((npc.rect.bottom, lambda target, actor=npc: actor.draw(target)))
+    for guard in guards:
+        draw_items.append((guard.rect.bottom, lambda target, actor=guard: actor.draw(target)))
+    draw_items.append((player.rect.bottom, lambda target: player.draw(target)))
+
+    for _, draw_item in sorted(draw_items, key=lambda item: item[0]):
+        draw_item(surface)
+
 # --------------------------------------------------
 # SETTINGS
 # --------------------------------------------------
+# Default to 16:9 aspect ratio (1280x720)
 WIDTH, HEIGHT = 1280, 720
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
 pygame.display.set_caption("Texas Hold'em: High Stakes")
@@ -36,92 +152,89 @@ TABLE_GREEN = (6, 71, 42)
 GOLD = (212, 175, 55)
 WHITE = (255, 255, 255)
 LIGHT_GOLD = (255, 215, 0)
-FLOOR = (40, 40, 40)
+FLOOR = (40, 40, 40)          # kept for compatibility but not used in world
 WALL = (20, 20, 20)
 PLAYER_COLOR = (200, 50, 50)
 NPC_COLOR = (200, 200, 50)
 GUARD_COLOR = (50, 120, 220)
 CARD_BACK_COLOR = (100, 50, 0)
-BOSS_MSG_BG = (0, 0, 0, 180)
+BOSS_MSG_BG = (0, 0, 0, 180)  # semi-transparent black
 MENU_BG = (0, 0, 0, 200)
 
+# Tile floor settings
 TILE_COLS = 16
 TILE_ROWS = 9
-TILE_GAP = 2
-TILE_BORDER_COLOR = (30, 30, 30)
+TILE_GAP = 0
 
+# Room colour sets (light, dark) – made darker
 ROOM_COLORS = [
     ((40, 90, 40), (10, 40, 10)),     # room 0: dark green
     ((30, 30, 90), (0, 0, 40)),       # room 1: dark blue
     ((120, 40, 40), (60, 0, 0))       # room 2: dark rose/red
 ]
 
-DOOR_SIZE = 80
-DOOR_COLOR = (100, 50, 20)
+# Door settings
+DOOR_SIZE = 80               # base door gap size (at 1280x720)
+DOOR_COLOR = (100, 50, 20)   # darker wood brown
 DOOR_HIGHLIGHT = (160, 100, 40)
 BASE_WALL_THICK = 40
 
-BASE_PLAYER_SIZE = 40
-BASE_NPC_SIZE = 35
-BASE_GUARD_SIZE = 40
-BASE_TABLE_W = 120
-BASE_TABLE_H = 80
+# Base sizes (at reference resolution 1280x720)
+BASE_PLAYER_SIZE = 72
+BASE_NPC_SIZE = 72
+BASE_GUARD_SIZE = 72
+BASE_TABLE_W = 132
+BASE_TABLE_H = 88
+PLAYER_VISUAL_SCALE = 1.5
+NPC_VISUAL_SCALE = 0.88
+NPC_VISUAL_WIDTH_SCALE = 1.12
 BASE_CARD_W = 80
 BASE_CARD_H = 112
 
-title_font = pygame.font.SysFont("arialblack", 80)
-font = pygame.font.SysFont(None, 32)
-boss_font = pygame.font.SysFont("arialblack", 28)
+# FONTS
+class PILFontAdapter:
+    def __init__(self, size, bold=False):
+        self.size = size
+        self.bold = bold
+        self._font = self._load_font(size, bold)
+
+    @staticmethod
+    def _load_font(size, bold):
+        candidates = [
+            "Arial Black.ttf" if bold else "Arial.ttf",
+            "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
+        ]
+        for candidate in candidates:
+            try:
+                return ImageFont.truetype(candidate, size)
+            except OSError:
+                continue
+        return ImageFont.load_default()
+
+    def render(self, text, antialias, color, background=None):
+        if text is None:
+            text = ""
+        dummy = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(dummy)
+        bbox = draw.textbbox((0, 0), text, font=self._font)
+        width = max(1, bbox[2] - bbox[0])
+        height = max(1, bbox[3] - bbox[1])
+        bg = (background[0], background[1], background[2], 255) if background else (0, 0, 0, 0)
+        image = Image.new("RGBA", (width, height), bg)
+        draw = ImageDraw.Draw(image)
+        draw.text((-bbox[0], -bbox[1]), text, font=self._font, fill=(color[0], color[1], color[2], 255))
+        return pygame.image.fromstring(image.tobytes(), image.size, image.mode)
+
+
+title_font = PILFontAdapter(80, bold=True)
+font = PILFontAdapter(32)
+boss_font = PILFontAdapter(28, bold=True)
+poker_label_font = PILFontAdapter(24, bold=True)
+poker_button_font = PILFontAdapter(24)
+poker_small_font = PILFontAdapter(18, bold=True)
 
 # --------------------------------------------------
-# SAVE / LOAD SYSTEM
-# --------------------------------------------------
-SAVE_FILE = "savegame.json"
-
-def save_game():
-    data = {
-        "chips": persistent_player.chips,
-        "boss_chips": persistent_player.boss_chips,
-        "buffs": persistent_player.buffs,
-        "second_chance_used": persistent_player.second_chance_used,
-        "table_intro_shown": table_intro_shown,
-        "current_room": current_room,
-        "player_x_ratio": player.x_ratio,
-        "player_y_ratio": player.y_ratio
-    }
-    with open(SAVE_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-def load_game():
-    global persistent_player, table_intro_shown, current_room, player
-    if os.path.exists(SAVE_FILE):
-        with open(SAVE_FILE, "r") as f:
-            data = json.load(f)
-        persistent_player.chips = data["chips"]
-        
-        if "boss_chips" in data:
-            persistent_player.boss_chips = data["boss_chips"]
-            
-        persistent_player.buffs = data["buffs"]
-        persistent_player.second_chance_used = data["second_chance_used"]
-        table_intro_shown = data["table_intro_shown"]
-        current_room = data["current_room"]
-        player.x_ratio = data["player_x_ratio"]
-        player.y_ratio = data["player_y_ratio"]
-        recalculate_elements()
-        return True
-    return False
-
-# --------------------------------------------------
-# PERSISTENT PLAYER & BOSS DIALOGUE
-# --------------------------------------------------
-persistent_player = PersistentPlayer("You")
-persistent_player.chips = 500
-
-# (BOSS_DIALOGUE is now imported, no need to redefine)
-
-# --------------------------------------------------
-# UI CLASSES
+# UI & OBJECT CLASSES
 # --------------------------------------------------
 class Button:
     def __init__(self, text, x_ratio, y_ratio, w_ratio=0.18, h_ratio=0.07):
@@ -137,8 +250,10 @@ class Button:
         btn_h = HEIGHT * self.h_ratio
         self.rect.size = (btn_w, btn_h)
         self.rect.center = (WIDTH * self.x_ratio, HEIGHT * self.y_ratio)
-        dynamic_font = pygame.font.SysFont("arial", int(btn_h * 0.5))
+        
+        dynamic_font = poker_button_font if self.h_ratio <= 0.06 else PILFontAdapter(int(btn_h * 0.5))
         color = GOLD if not self.rect.collidepoint(pygame.mouse.get_pos()) else LIGHT_GOLD
+
         pygame.draw.rect(surface, color, self.rect, border_radius=10)
         text_surf = dynamic_font.render(self.text, True, TABLE_GREEN)
         surface.blit(text_surf, text_surf.get_rect(center=self.rect.center))
@@ -152,17 +267,30 @@ class WorldPlayer:
         self.base_speed = 5
         self.x_ratio = 0.1
         self.y_ratio = 0.1
+        self.direction = "down"
+        self.moving = False
+        self.frame_index = 0.0
+        self.sprite_frames = sprite_loader.load_player_frames(tile_size=BASE_PLAYER_SIZE)
 
     def resize(self, scale_x, scale_y):
-        width = int(BASE_PLAYER_SIZE * scale_x)
-        height = int(BASE_PLAYER_SIZE * scale_y)
-        self.rect.size = (width, height)
+        """Update player size without stretching the sprite on non-16:9 windows."""
+        scale = get_world_scale(scale_x, scale_y)
+        size = int(BASE_PLAYER_SIZE * scale)
+        self.rect.size = (size, size)
         self.reposition()
 
     def reposition(self):
         self.rect.center = (WIDTH * self.x_ratio, HEIGHT * self.y_ratio)
 
     def move(self, dx, dy, colliders):
+        """Move with collision detection and resolution (separate axes)."""
+        self.moving = dx != 0 or dy != 0
+        if abs(dx) > abs(dy):
+            self.direction = "right" if dx > 0 else "left"
+        elif dy != 0:
+            self.direction = "down" if dy > 0 else "up"
+
+        # Move horizontally
         self.rect.x += dx
         for collider in colliders:
             if self.rect.colliderect(collider):
@@ -170,6 +298,7 @@ class WorldPlayer:
                     self.rect.right = collider.left
                 elif dx < 0:
                     self.rect.left = collider.right
+        # Move vertically
         self.rect.y += dy
         for collider in colliders:
             if self.rect.colliderect(collider):
@@ -177,75 +306,96 @@ class WorldPlayer:
                     self.rect.bottom = collider.top
                 elif dy < 0:
                     self.rect.top = collider.bottom
+        
+        # Update ratios
         self.x_ratio = self.rect.centerx / WIDTH
         self.y_ratio = self.rect.centery / HEIGHT
 
+    def update_animation(self, dt_ms, scale_x):
+        frame_size = max(24, int(self.rect.width * PLAYER_VISUAL_SCALE))
+        if frame_size not in sprite_loader._player_cache:
+            self.sprite_frames = sprite_loader.load_player_frames(tile_size=frame_size)
+        else:
+            self.sprite_frames = sprite_loader._player_cache[frame_size]
+
+        if self.moving:
+            frame_count = len(self.sprite_frames[f"walk_{self.direction}"])
+            self.frame_index = (self.frame_index + 0.012 * dt_ms) % frame_count
+        else:
+            self.frame_index = 0.0
+
+    def current_frame(self):
+        key = f"walk_{self.direction}" if self.moving else f"idle_{self.direction}"
+        frames = self.sprite_frames[key]
+        return frames[int(self.frame_index) % len(frames)]
+
     def draw(self, surface):
-        pygame.draw.rect(surface, PLAYER_COLOR, self.rect)
+        frame = self.current_frame()
+        draw_shadow(surface, self.rect, width_ratio=0.5, height_ratio=0.16, alpha=55)
+        sprite_rect = frame.get_rect(midbottom=(self.rect.centerx, self.rect.bottom + 4))
+        surface.blit(frame, sprite_rect)
 
 class NPC:
-    def __init__(self, x_ratio, y_ratio):
+    def __init__(self, x_ratio, y_ratio, facing="down", use_sprite_sheet=True):
         self.x_ratio, self.y_ratio = x_ratio, y_ratio
         self.rect = pygame.Rect(0, 0, BASE_NPC_SIZE, BASE_NPC_SIZE)
-        self.timer = 0
-        self.direction = (0, 0)
-        self.base_speed = 2
+        self.facing = facing
+        self.use_sprite_sheet = use_sprite_sheet
+        self.sprite_name = "gambler.png"
+        self.sprite_frames = sprite_loader.load_player_frames(tile_size=BASE_NPC_SIZE)
 
     def resize(self, scale_x, scale_y):
-        width = int(BASE_NPC_SIZE * scale_x)
-        height = int(BASE_NPC_SIZE * scale_y)
-        self.rect.size = (width, height)
+        scale = get_world_scale(scale_x, scale_y)
+        size = int(BASE_NPC_SIZE * scale)
+        self.rect.size = (size, size)
+        frame_size = max(20, int(size * NPC_VISUAL_SCALE))
+        if frame_size not in sprite_loader._player_cache:
+            self.sprite_frames = sprite_loader.load_player_frames(tile_size=frame_size)
+        else:
+            self.sprite_frames = sprite_loader._player_cache[frame_size]
         self.reposition()
 
     def reposition(self):
         self.rect.center = (WIDTH * self.x_ratio, HEIGHT * self.y_ratio)
 
     def update(self, colliders, speed_scale_x, speed_scale_y):
-        self.timer -= 1
-        if self.timer <= 0:
-            if random.random() < 0.7:
-                self.direction = (0, 0)
-            else:
-                self.direction = random.choice([(1,0), (-1,0), (0,1), (0,-1)])
-            self.timer = random.randint(30, 90)
-        dx = self.direction[0] * self.base_speed * speed_scale_x
-        dy = self.direction[1] * self.base_speed * speed_scale_y
-        self.rect.x += dx
-        for collider in colliders:
-            if self.rect.colliderect(collider):
-                if dx > 0:
-                    self.rect.right = collider.left
-                elif dx < 0:
-                    self.rect.left = collider.right
-        self.rect.y += dy
-        for collider in colliders:
-            if self.rect.colliderect(collider):
-                if dy > 0:
-                    self.rect.bottom = collider.top
-                elif dy < 0:
-                    self.rect.top = collider.bottom
-        self.x_ratio = self.rect.centerx / WIDTH
-        self.y_ratio = self.rect.centery / HEIGHT
+        self.reposition()
 
     def draw(self, surface):
-        pygame.draw.rect(surface, NPC_COLOR, self.rect)
+        if self.use_sprite_sheet:
+            sprite = self.sprite_frames[f"idle_{self.facing}"][0]
+        else:
+            sprite_size = (
+                int(self.rect.width * NPC_VISUAL_WIDTH_SCALE),
+                int(self.rect.height * NPC_VISUAL_SCALE),
+            )
+            sprite = load_sprite_sheet_frame(self.sprite_name, sprite_size)
+        draw_shadow(surface, self.rect, width_ratio=0.55, height_ratio=0.18, alpha=55)
+        surface.blit(sprite, sprite.get_rect(midbottom=(self.rect.centerx, self.rect.bottom + 2)))
 
 class Guard:
     def __init__(self, x_ratio, y_ratio):
         self.x_ratio, self.y_ratio = x_ratio, y_ratio
         self.rect = pygame.Rect(0, 0, BASE_GUARD_SIZE, BASE_GUARD_SIZE)
+        self.sprite_name = "dealer.png"
 
     def resize(self, scale_x, scale_y):
-        width = int(BASE_GUARD_SIZE * scale_x)
-        height = int(BASE_GUARD_SIZE * scale_y)
-        self.rect.size = (width, height)
+        scale = get_world_scale(scale_x, scale_y)
+        size = int(BASE_GUARD_SIZE * scale)
+        self.rect.size = (size, size)
         self.reposition()
 
     def reposition(self):
         self.rect.center = (WIDTH * self.x_ratio, HEIGHT * self.y_ratio)
 
     def draw(self, surface):
-        pygame.draw.rect(surface, GUARD_COLOR, self.rect)
+        sprite_size = (
+            int(self.rect.width * NPC_VISUAL_WIDTH_SCALE),
+            int(self.rect.height * NPC_VISUAL_SCALE),
+        )
+        sprite = load_sprite_sheet_frame(self.sprite_name, sprite_size)
+        draw_shadow(surface, self.rect, width_ratio=0.58, height_ratio=0.18, alpha=60)
+        surface.blit(sprite, sprite.get_rect(midbottom=(self.rect.centerx, self.rect.bottom + 2)))
 
 class Door:
     def __init__(self, rect, target_room, spawn_pos):
@@ -253,8 +403,119 @@ class Door:
         self.target_room = target_room
         self.spawn_pos = spawn_pos
 
+
+def resolve_asset_path(*path_parts):
+    relative_path = Path(*path_parts)
+    candidates = [relative_path]
+
+    # Support callers that still pass "ui/..." while the files live in Assets/ui/.
+    if relative_path.parts and relative_path.parts[0].lower() == "ui":
+        candidates.append(Path("Assets") / relative_path)
+        candidates.append(Path("assets") / relative_path)
+
+    for root in ASSET_SEARCH_ROOTS:
+        for candidate in candidates:
+            asset_path = root / candidate
+            if asset_path.exists():
+                return asset_path
+
+    raise FileNotFoundError(f"Unable to find asset: {relative_path}")
+
+
+def load_image_asset(*path_parts, size=None, pixel_art=False):
+    asset_path = resolve_asset_path(*path_parts)
+    cache_key = (str(asset_path), size)
+
+    if cache_key in IMAGE_CACHE:
+        return IMAGE_CACHE[cache_key]
+
+    try:
+        image = pygame.image.load(str(asset_path))
+    except pygame.error:
+        with Image.open(asset_path) as pil_image:
+            converted = pil_image.convert("RGBA")
+            image = pygame.image.fromstring(
+                converted.tobytes(),
+                converted.size,
+                converted.mode,
+            )
+    if pygame.display.get_init() and pygame.display.get_surface() is not None:
+        image = image.convert_alpha()
+
+    if size is not None:
+        scaler = pygame.transform.scale if pixel_art else pygame.transform.smoothscale
+        image = scaler(image, size)
+
+    IMAGE_CACHE[cache_key] = image
+    return image
+
+
+def prepare_actor_sprite_surface(surface):
+    cleaned = surface.copy()
+    if pygame.display.get_init() and pygame.display.get_surface() is not None:
+        cleaned = cleaned.convert_alpha()
+
+    width, height = cleaned.get_size()
+    sample_points = {
+        (0, 0),
+        (1, 0),
+        (0, 1),
+        (width - 1, 0),
+        (width - 2, 0),
+        (width - 1, 1),
+        (0, height - 1),
+        (1, height - 1),
+        (0, height - 2),
+        (width - 1, height - 1),
+        (width - 2, height - 1),
+        (width - 1, height - 2),
+    }
+    background_colors = [cleaned.get_at(point)[:3] for point in sample_points]
+    stack = []
+    visited = set()
+
+    for x in range(width):
+        stack.append((x, 0))
+        stack.append((x, height - 1))
+    for y in range(height):
+        stack.append((0, y))
+        stack.append((width - 1, y))
+
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in visited:
+            continue
+        visited.add((x, y))
+        color = cleaned.get_at((x, y))
+        if color.a == 0 or not sprite_loader._matches_background(color, background_colors):
+            continue
+        cleaned.set_at((x, y), (color.r, color.g, color.b, 0))
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= nx < width and 0 <= ny < height:
+                stack.append((nx, ny))
+
+    return sprite_loader._pad_surface(sprite_loader._trim_surface(cleaned))
+
+
+def load_sprite_sheet_frame(asset_name, size, frame_col=0, frame_row=0, cols=4, rows=4):
+    cache_key = ("sheet_frame", asset_name, size, frame_col, frame_row, cols, rows)
+    if cache_key in IMAGE_CACHE:
+        return IMAGE_CACHE[cache_key]
+
+    sheet = load_image_asset(asset_name)
+    frame_rect = sprite_loader._grid_frame_rect(sheet, cols, rows, frame_col, frame_row)
+    frame = pygame.Surface((frame_rect.width, frame_rect.height), pygame.SRCALPHA)
+    frame.blit(sheet, (0, 0), frame_rect)
+    if asset_name in {"gambler.png", "dealer.png", "Boss.png"}:
+        frame = prepare_actor_sprite_surface(frame)
+    else:
+        frame = sprite_loader._prepare_sprite_surface(frame)
+    frame = scale_surface_to_rect(frame, pygame.Rect(0, 0, size[0], size[1]))
+    IMAGE_CACHE[cache_key] = frame
+    return frame
+
 # --------------------------------------------------
-# ANIMATION SYSTEM
+# ANIMATION SYSTEM FOR CARD DEALING
 # --------------------------------------------------
 class CardAnimation:
     def __init__(self, card_image, from_pos, to_pos, speed=0.1):
@@ -282,60 +543,134 @@ class CardAnimation:
 # --------------------------------------------------
 # ROOM CONFIGURATIONS
 # --------------------------------------------------
+# Room 0 (green) – starting room with tables, NPCs, guards
+# Room 1 (blue) – different table positions, no NPCs
+# Room 2 (rose/red) – different table positions, no NPCs
+
+# Current active room elements
 tables = []
+playable_tables = []
+room_props = []
 npcs = []
 guards = []
-obstacles = []
+
+
+def create_table_npc(
+    table_rect,
+    x_offset_ratio=0.0,
+    y_offset_ratio=0.38,
+    facing="down",
+    sprite_name="dealer.png",
+    use_sprite_sheet=False,
+):
+    npc_x = (table_rect.centerx + table_rect.width * x_offset_ratio) / WIDTH
+    npc_y = (table_rect.top - table_rect.height * y_offset_ratio) / HEIGHT
+    npc = NPC(npc_x, npc_y, facing=facing, use_sprite_sheet=use_sprite_sheet)
+    npc.sprite_name = sprite_name
+    return npc
 
 def set_room_layout(room_idx, scale_x, scale_y):
-    global tables, npcs, guards, obstacles
-    table_w = int(BASE_TABLE_W * scale_x)
-    table_h = int(BASE_TABLE_H * scale_y)
+    """Set up room objects using a uniform visual scale inside the playable floor."""
+    global tables, playable_tables, room_props, npcs, guards
+    visual_scale = get_world_scale(scale_x, scale_y)
+    table_w = int(BASE_TABLE_W * visual_scale)
+    table_h = int(BASE_TABLE_H * visual_scale)
+    room_table_scale = {0: 1.0, 1: 0.82, 2: 0.78}.get(room_idx, 1.0)
+    room_prop_scale = {0: 1.0, 1: 0.84, 2: 0.8}.get(room_idx, 1.0)
+    table_w = int(table_w * room_table_scale)
+    table_h = int(table_h * room_table_scale)
+    side_table_w = table_w
+    side_table_h = table_h
+    prop_unit_w = max(32, int(table_w * 0.95 * room_prop_scale))
+    prop_unit_h = max(32, int(table_h * 0.95 * room_prop_scale))
 
-    obstacles.clear()
+    floor_rect = get_room_interior_bounds(room_idx, scale_x, scale_y)
+
+    def scaled_rect(x_ratio, y_ratio, width, height):
+        return pygame.Rect(
+            int(floor_rect.left + floor_rect.width * x_ratio),
+            int(floor_rect.top + floor_rect.height * y_ratio),
+            width,
+            height,
+        )
+
+    def scaled_prop_rect(x_ratio, y_ratio, width_scale, height_scale):
+        return scaled_rect(
+            x_ratio,
+            y_ratio,
+            int(prop_unit_w * width_scale),
+            int(prop_unit_h * height_scale),
+        )
+    
     if room_idx == 0:
-        tables = [pygame.Rect(WIDTH * 0.3, HEIGHT * 0.3, table_w, table_h)]
-        npcs = [NPC(0.2, 0.3), NPC(0.4, 0.5), NPC(0.7, 0.2)]
-        guards = [Guard(0.8, 0.3), Guard(0.84, 0.3)]
-        obs1 = pygame.Rect(WIDTH*0.15, HEIGHT*0.6, 30, 30)
-        obs2 = pygame.Rect(WIDTH*0.7, HEIGHT*0.8, 50, 30)
-        obs3 = pygame.Rect(WIDTH*0.85, HEIGHT*0.2, 40, 40)
-        obstacles.extend([obs1, obs2, obs3])
+        playable_tables = [
+            scaled_rect(0.45, 0.40, table_w, table_h)
+        ]
+        tables = playable_tables + [
+            scaled_rect(0.15, 0.24, side_table_w, side_table_h),
+            scaled_rect(0.73, 0.52, side_table_w, side_table_h),
+        ]
+        room_props = []
+        npcs = [
+            create_table_npc(playable_tables[0], facing="down", sprite_name="dealer.png"),
+        ]
+        guards = []
     elif room_idx == 1:
-        tables = [pygame.Rect(WIDTH * 0.5, HEIGHT * 0.5, table_w, table_h)]
-        npcs = []
+        playable_tables = [
+            scaled_rect(0.47, 0.41, table_w, table_h)
+        ]
+        tables = playable_tables + [
+            scaled_rect(0.67, 0.26, side_table_w, side_table_h),
+            scaled_rect(0.62, 0.58, side_table_w, side_table_h),
+        ]
+        room_props = []
+        npcs = [
+            create_table_npc(playable_tables[0], facing="down", sprite_name="Boss.png"),
+        ]
         guards = []
-        obs1 = pygame.Rect(WIDTH*0.2, HEIGHT*0.2, 60, 60)
-        obs2 = pygame.Rect(WIDTH*0.75, HEIGHT*0.7, 45, 45)
-        obs3 = pygame.Rect(WIDTH*0.1, HEIGHT*0.8, 35, 60)
-        obstacles.extend([obs1, obs2, obs3])
-    else:
-        tables = [pygame.Rect(WIDTH * 0.5, HEIGHT * 0.4, table_w, table_h)]
-        npcs = []
+    else:  # room_idx == 2
+        playable_tables = [
+            scaled_rect(0.52, 0.42, table_w, table_h)
+        ]
+        tables = playable_tables + [
+            scaled_rect(0.22, 0.22, side_table_w, side_table_h),
+            scaled_rect(0.25, 0.62, side_table_w, side_table_h),
+        ]
+        room_props = []
+        npcs = [
+            create_table_npc(playable_tables[0], facing="down", sprite_name="gambler.png"),
+        ]
         guards = []
-
+    
+    # Apply scaling to NPCs and Guards
     for n in npcs:
         n.resize(scale_x, scale_y)
     for g in guards:
         g.resize(scale_x, scale_y)
+        g.sprite_name = "Boss.png" if room_idx == 0 and g is guards[0] else "dealer.png"
 
 # --------------------------------------------------
-# INITIALIZATION
+# INITIALIZATION & RESIZING
 # --------------------------------------------------
 player = WorldPlayer()
+persistent_player = PersistentPlayer("You")
+persistent_player.chips = 500
 walls = []
 doors = []
 current_room = 0
 current_scale_x = 1.0
 current_scale_y = 1.0
 
-# Buttons
-checkCall_btn = Button("Check/Call", 0.2, 0.9, 0.15, 0.06)
-raise_btn = Button("Raise (50$)", 0.4, 0.9, 0.15, 0.06)
-fold_btn = Button("Fold", 0.6, 0.9, 0.15, 0.06)
-leave_btn = Button("Leave", 0.8, 0.9, 0.15, 0.06)
+# Poker Buttons 
+checkCall_btn = Button("Check/Call", 0.2, 0.86, 0.15, 0.06)
+raise_btn = Button("Raise (50$)", 0.4, 0.86, 0.15, 0.06)
+fold_btn = Button("Fold", 0.6, 0.86, 0.15, 0.06)
+leave_btn = Button("Leave", 0.8, 0.86, 0.15, 0.06)
 play_again_btn = Button("Play Again", 0.4, 0.85, 0.2, 0.08)
 leave_table_btn = Button("Leave Table", 0.6, 0.85, 0.2, 0.08)
+raise_confirm_btn = Button("Confirm", 0.39, 0.64, 0.16, 0.06)
+raise_all_in_btn = Button("All In", 0.55, 0.64, 0.16, 0.06)
+raise_cancel_btn = Button("Cancel", 0.71, 0.64, 0.16, 0.06)
 
 # Menu buttons
 volume_slider_btn = Button("Volume: 50%", 0.5, 0.4, 0.3, 0.07)
@@ -344,38 +679,119 @@ save_exit_btn = Button("Save & Exit", 0.5, 0.7, 0.3, 0.07)
 resume_btn = Button("Resume", 0.5, 0.85, 0.3, 0.07)
 
 # Main menu buttons
-new_game_btn = Button("New Game", 0.5, 0.4, 0.3, 0.08)
-continue_btn = Button("Continue", 0.5, 0.55, 0.3, 0.08)
-quit_main_btn = Button("Quit", 0.5, 0.7, 0.3, 0.08)
+new_game_btn = Button("New Game", 0.5, 0.34, 0.3, 0.08)
+free_play_btn = Button("Free Play", 0.5, 0.48, 0.3, 0.08)
+continue_btn = Button("Continue", 0.5, 0.62, 0.3, 0.08)
+quit_main_btn = Button("Quit", 0.5, 0.76, 0.3, 0.08)
 
+# Animation globals
 deck_pos = (WIDTH * 0.1, HEIGHT * 0.5)
 active_animations = []
 animating = False
-animating_card_keys = set()
+animating_card_keys = set()  # (type, index) where type = 'human', 'boss', 'community'
 
+# Boss message system
 boss_message_text = None
-boss_message_timer = 0
-
+boss_message_timer = 0  # milliseconds remaining
 boss_thinking = False
 boss_think_start_time = 0
 boss_think_duration = 0
 current_boss_difficulty = None
-
 table_intro_shown = {"easy": False, "medium": False, "hard": False}
 show_hand_menu = False
 last_hand_player_won = False
-
+player_raised_this_hand = False
+raise_prompt_active = False
+raise_input_text = ""
+raise_prompt_error = None
 ENTRY_COST = {"easy": 50, "medium": 100, "hard": 200}
-
 escape_menu_active = False
-
-# Story pages are now imported as STORY_PAGES
 story_mode_active = False
 current_story_page = 0
+SAVE_FILE = PROJECT_ROOT / "savegame.json"
+
+
+def default_boss_chips():
+    return {"easy": 1000, "medium": 750, "hard": 500}
+
+
+def save_game():
+    data = {
+        "chips": persistent_player.chips,
+        "boss_chips": persistent_player.boss_chips,
+        "beaten_bosses": persistent_player.beaten_bosses,
+        "buffs": persistent_player.buffs,
+        "second_chance_used": persistent_player.second_chance_used,
+        "table_intro_shown": table_intro_shown,
+        "current_room": current_room,
+        "player_x_ratio": player.x_ratio,
+        "player_y_ratio": player.y_ratio,
+    }
+    with open(SAVE_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_game():
+    global table_intro_shown, current_room
+    if not SAVE_FILE.exists():
+        return False
+
+    with open(SAVE_FILE, "r") as f:
+        data = json.load(f)
+
+    persistent_player.chips = data.get("chips", 500)
+    persistent_player.buffs = data.get("buffs", [])
+    persistent_player.beaten_bosses = data.get("beaten_bosses", [])
+    persistent_player.second_chance_used = data.get("second_chance_used", False)
+    persistent_player.boss_chips = data.get("boss_chips", default_boss_chips())
+    if "boss_chips" not in data:
+        for defeated in persistent_player.beaten_bosses:
+            if defeated in persistent_player.boss_chips:
+                persistent_player.boss_chips[defeated] = 0
+
+    table_intro_shown = data.get("table_intro_shown", {"easy": False, "medium": False, "hard": False})
+    current_room = data.get("current_room", 0)
+    player.x_ratio = data.get("player_x_ratio", 0.1)
+    player.y_ratio = data.get("player_y_ratio", 0.1)
+    recalculate_elements()
+    return True
+
+
+def reset_new_game():
+    global table_intro_shown, current_room, story_mode_active, current_story_page
+    persistent_player.chips = 500
+    persistent_player.beaten_bosses = []
+    persistent_player.buffs = []
+    persistent_player.second_chance_used = False
+    persistent_player.boss_chips = default_boss_chips()
+    table_intro_shown = {"easy": False, "medium": False, "hard": False}
+    current_room = 0
+    player.x_ratio = 0.1
+    player.y_ratio = 0.1
+    recalculate_elements()
+    story_mode_active = True
+    current_story_page = 0
+
+
+def reset_free_play():
+    global table_intro_shown, current_room, story_mode_active, current_story_page
+    persistent_player.chips = 5000
+    persistent_player.beaten_bosses = ["easy", "medium"]
+    persistent_player.buffs = ["Lucky Draw", "High Roller", "All-In Fury"]
+    persistent_player.second_chance_used = False
+    persistent_player.boss_chips = default_boss_chips()
+    table_intro_shown = {"easy": True, "medium": True, "hard": True}
+    current_room = 0
+    player.x_ratio = 0.3
+    player.y_ratio = 0.5
+    recalculate_elements()
+    story_mode_active = False
+    current_story_page = 0
 
 def set_boss_message(msg):
     global boss_message_text, boss_message_timer
     boss_message_text = msg
+    # want to implement a delay for this to make boss have to "think" about its decisions
     boss_message_timer = 3000
 
 def update_boss_message(dt_ms):
@@ -387,17 +803,118 @@ def update_boss_message(dt_ms):
 
 def draw_boss_message(surface):
     if boss_message_text:
+        # Create a semi-transparent background surface
         msg_surf = boss_font.render(boss_message_text, True, GOLD)
         padding = 15
         bg_rect = msg_surf.get_rect().inflate(padding*2, padding)
         bg_surf = pygame.Surface(bg_rect.size, pygame.SRCALPHA)
         bg_surf.fill((0, 0, 0, 180))
+        # Position above dealer's hand
         x = WIDTH * 0.15
         y = HEIGHT * 0.05
         bg_rect.topleft = (x, y)
-        surface.blit(bg_surf, bg_rect)
-        surface.blit(msg_surf, msg_surf.get_rect(center=bg_rect.center))
+        screen.blit(bg_surf, bg_rect)
+        screen.blit(msg_surf, msg_surf.get_rect(center=bg_rect.center))
 
+
+def open_raise_prompt():
+    global raise_prompt_active, raise_input_text, raise_prompt_error
+    call_amount = poker_game.getCallAmount(poker_game.currentPlayer)
+    max_raise = poker_game.human.chips - call_amount
+    if max_raise <= 0:
+        set_boss_message("No chips left to raise.")
+        return
+
+    default_raise = 100 if persistent_player.has_buff("All-In Fury") else 50
+    raise_prompt_active = True
+    raise_input_text = str(min(default_raise, max_raise))
+    raise_prompt_error = None
+
+
+def close_raise_prompt():
+    global raise_prompt_active, raise_input_text, raise_prompt_error
+    raise_prompt_active = False
+    raise_input_text = ""
+    raise_prompt_error = None
+
+
+def submit_raise_amount(raise_amount, current_time):
+    global boss_thinking, boss_think_start_time, boss_think_duration, player_raised_this_hand, raise_prompt_error
+
+    call_amount = poker_game.getCallAmount(poker_game.currentPlayer)
+    max_raise = poker_game.human.chips - call_amount
+    if raise_amount <= 0:
+        raise_prompt_error = "Enter an amount above $0."
+        return False
+    if raise_amount > max_raise:
+        raise_prompt_error = f"Max raise is ${max_raise}."
+        return False
+
+    action = Action("raise", raise_amount)
+    action.processAction(poker_game.currentPlayer, poker_game)
+    poker_game.playerActed = True
+    player_raised_this_hand = True
+    close_raise_prompt()
+
+    boss_thinking = True
+    boss_think_start_time = current_time
+    boss_think_duration = random.randint(500, 2000)
+    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
+    set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
+    return True
+
+
+def submit_typed_raise(current_time):
+    global raise_prompt_error
+    if not raise_input_text:
+        raise_prompt_error = "Type a raise amount."
+        return False
+    return submit_raise_amount(int(raise_input_text), current_time)
+
+
+def submit_all_in(current_time):
+    call_amount = poker_game.getCallAmount(poker_game.currentPlayer)
+    return submit_raise_amount(poker_game.human.chips - call_amount, current_time)
+
+
+def draw_raise_prompt(surface):
+    if not raise_prompt_active:
+        return
+
+    call_amount = poker_game.getCallAmount(poker_game.currentPlayer)
+    max_raise = max(0, poker_game.human.chips - call_amount)
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 145))
+    surface.blit(overlay, (0, 0))
+
+    panel = pygame.Rect(0, 0, int(WIDTH * 0.5), int(HEIGHT * 0.32))
+    panel.center = (WIDTH // 2, int(HEIGHT * 0.52))
+    pygame.draw.rect(surface, TABLE_GREEN, panel, border_radius=12)
+    pygame.draw.rect(surface, GOLD, panel, 3, border_radius=12)
+
+    title = poker_label_font.render("Raise Amount", True, GOLD)
+    surface.blit(title, title.get_rect(center=(panel.centerx, panel.top + 36)))
+
+    help_text = poker_small_font.render(f"Call: ${call_amount}   Max raise: ${max_raise}", True, WHITE)
+    surface.blit(help_text, help_text.get_rect(center=(panel.centerx, panel.top + 68)))
+
+    input_rect = pygame.Rect(0, 0, int(panel.width * 0.42), 46)
+    input_rect.center = (panel.centerx, panel.top + 116)
+    pygame.draw.rect(surface, WHITE, input_rect, border_radius=6)
+    pygame.draw.rect(surface, GOLD, input_rect, 2, border_radius=6)
+    typed = raise_input_text if raise_input_text else "0"
+    input_text = poker_label_font.render(f"${typed}", True, TABLE_GREEN)
+    surface.blit(input_text, input_text.get_rect(center=input_rect.center))
+
+    if raise_prompt_error:
+        error = poker_small_font.render(raise_prompt_error, True, (255, 120, 120))
+        surface.blit(error, error.get_rect(center=(panel.centerx, panel.top + 154)))
+
+    raise_confirm_btn.draw(surface)
+    raise_all_in_btn.draw(surface)
+    raise_cancel_btn.draw(surface)
+
+# Card back image (scaled independently)
 def get_card_back_image(scale_x, scale_y):
     card_w = int(BASE_CARD_W * scale_x)
     card_h = int(BASE_CARD_H * scale_y)
@@ -408,84 +925,150 @@ def get_card_back_image(scale_x, scale_y):
     pygame.draw.line(back_surf, (200,150,100), (card_w,0), (0, card_h), 2)
     return back_surf
 
+# Global card_back_img, will be updated on resize
 card_back_img = get_card_back_image(1.0, 1.0)
 
+def get_room_bounds(room_idx, scale_x=None, scale_y=None):
+    scale_x = current_scale_x if scale_x is None else scale_x
+    scale_y = current_scale_y if scale_y is None else scale_y
+
+    insets = {
+        0: (max(18, int(24 * scale_x)), max(16, int(20 * scale_y))),
+        1: (max(74, int(102 * scale_x)), max(46, int(68 * scale_y))),
+        2: (max(54, int(78 * scale_x)), max(38, int(56 * scale_y))),
+    }
+    inset_x, inset_y = insets.get(room_idx, insets[0])
+    width = max(220, WIDTH - inset_x * 2)
+    height = max(180, HEIGHT - inset_y * 2)
+    return pygame.Rect(inset_x, inset_y, width, height)
+
+def get_wall_thickness(room_idx=None, scale_x=None, scale_y=None):
+    room_idx = current_room if room_idx is None else room_idx
+    scale_x = current_scale_x if scale_x is None else scale_x
+    scale_y = current_scale_y if scale_y is None else scale_y
+    wall_scale = {0: 1.0, 1: 2.45, 2: 2.1}.get(room_idx, 1.0)
+    return (
+        int(BASE_WALL_THICK * scale_x * wall_scale),
+        int(BASE_WALL_THICK * scale_y * wall_scale),
+    )
+
+def get_room_interior_bounds(room_idx, scale_x=None, scale_y=None):
+    scale_x = current_scale_x if scale_x is None else scale_x
+    scale_y = current_scale_y if scale_y is None else scale_y
+    room_bounds = get_room_bounds(room_idx, scale_x, scale_y)
+    wall_thick_x, wall_thick_y = get_wall_thickness(room_idx, scale_x, scale_y)
+    return room_bounds.inflate(-wall_thick_x * 2, -wall_thick_y * 2)
+
+def clamp_player_to_current_room():
+    interior = get_room_interior_bounds(current_room)
+    player.rect.clamp_ip(interior)
+    player.x_ratio = player.rect.centerx / WIDTH
+    player.y_ratio = player.rect.centery / HEIGHT
+
 def draw_tiled_floor(surface, room_idx):
-    light_color, dark_color = ROOM_COLORS[room_idx]
+    """Draw a centered tiled floor with less visual noise than the placeholder grid."""
+    room_bounds = get_room_bounds(room_idx)
+
+    # Available space for tiles (excluding gaps)
     total_gap_width = (TILE_COLS - 1) * TILE_GAP
     total_gap_height = (TILE_ROWS - 1) * TILE_GAP
-    tile_width = (WIDTH - total_gap_width) // TILE_COLS
-    tile_height = (HEIGHT - total_gap_height) // TILE_ROWS
+    
+    tile_width = room_bounds.width // TILE_COLS
+    tile_height = room_bounds.height // TILE_ROWS
+    
+    # If tile dimensions are zero or negative, fallback to simple fill
     if tile_width <= 0 or tile_height <= 0:
-        surface.fill(dark_color)
+        surface.fill(ROOM_COLORS[room_idx][1])
         return
+    
+    # Total size of the drawn grid
     grid_width = TILE_COLS * tile_width + total_gap_width
     grid_height = TILE_ROWS * tile_height + total_gap_height
-    start_x = (WIDTH - grid_width) // 2
-    start_y = (HEIGHT - grid_height) // 2
-    surface.fill(dark_color)
+    start_x = room_bounds.x + (room_bounds.width - grid_width) // 2
+    start_y = room_bounds.y + (room_bounds.height - grid_height) // 2
+    
+    # Keep the non-playable area subdued so smaller rooms still fill the screen visually.
+    surface.fill((14, 12, 12))
+    tile_surface = get_world_floor_tile(room_idx, (tile_width, tile_height))
+    
+    # Draw tiles
     for row in range(TILE_ROWS):
         for col in range(TILE_COLS):
             x = start_x + col * (tile_width + TILE_GAP)
             y = start_y + row * (tile_height + TILE_GAP)
-            color = light_color if (col + row) % 2 == 0 else dark_color
-            pygame.draw.rect(surface, color, (x, y, tile_width, tile_height))
-            pygame.draw.rect(surface, TILE_BORDER_COLOR, (x, y, tile_width, tile_height), 1)
+            surface.blit(tile_surface, (x, y))
+
+    # Subtle vignette keeps the edges from feeling flat without reintroducing a harsh grid.
+    vignette = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    pygame.draw.rect(vignette, (0, 0, 0, 24), room_bounds.inflate(20, 20), border_radius=24)
+    inner_rect = room_bounds.inflate(-max(40, room_bounds.width // 7), -max(30, room_bounds.height // 7))
+    pygame.draw.rect(vignette, (0, 0, 0, 0), inner_rect, border_radius=20)
+    surface.blit(vignette, (0, 0))
+
 
 def draw_poker_background(surface, room_idx):
     bg_color = ROOM_COLORS[room_idx][1]
     bg_color_light = tuple(min(255, c + 20) for c in bg_color)
     surface.fill(bg_color_light)
     light_color, dark_color = ROOM_COLORS[room_idx]
-    table_rect = pygame.Rect(WIDTH//4, HEIGHT//4, WIDTH//2, HEIGHT//2)
+    table_rect = pygame.Rect(WIDTH // 4, HEIGHT // 4, WIDTH // 2, HEIGHT // 2)
     pygame.draw.rect(surface, dark_color, table_rect, border_radius=20)
     pygame.draw.rect(surface, light_color, table_rect.inflate(-10, -10), border_radius=15)
     pygame.draw.rect(surface, GOLD, table_rect, 3, border_radius=20)
 
 def create_walls_and_doors(scale_x, scale_y):
+    """
+    Create wall segments with gaps only on the walls that should have doors,
+    based on the current room. Sizes scale independently per axis.
+    """
     global walls, doors
-    door_gap_x = int(DOOR_SIZE * scale_x)
-    door_gap_y = int(DOOR_SIZE * scale_y)
-    wall_thick_x = int(BASE_WALL_THICK * scale_x)
-    wall_thick_y = int(BASE_WALL_THICK * scale_y)
+    door_gap_x = int(DOOR_SIZE * scale_x)   # width of horizontal door gaps
+    door_gap_y = int(DOOR_SIZE * scale_y)   # height of vertical door gaps
+    wall_thick_x, wall_thick_y = get_wall_thickness(current_room, scale_x, scale_y)
+    room_bounds = get_room_bounds(current_room, scale_x, scale_y)
     doors = []
 
+    # Top wall: horizontal, thickness uses scale_y, width uses scale_x
     if current_room == 0:
-        top_left = pygame.Rect(0, 0, (WIDTH - door_gap_x) // 2, wall_thick_y)
-        top_right = pygame.Rect((WIDTH + door_gap_x) // 2, 0, (WIDTH - door_gap_x) // 2, wall_thick_y)
-        top_door_rect = pygame.Rect((WIDTH - door_gap_x) // 2, 0, door_gap_x, wall_thick_y)
+        top_left = pygame.Rect(room_bounds.left, room_bounds.top, (room_bounds.width - door_gap_x) // 2, wall_thick_y)
+        top_right = pygame.Rect(room_bounds.centerx + door_gap_x // 2, room_bounds.top, (room_bounds.width - door_gap_x) // 2, wall_thick_y)
+        top_door_rect = pygame.Rect(room_bounds.centerx - door_gap_x // 2, room_bounds.top, door_gap_x, wall_thick_y)
     else:
-        top_left = pygame.Rect(0, 0, WIDTH, wall_thick_y)
+        top_left = pygame.Rect(room_bounds.left, room_bounds.top, room_bounds.width, wall_thick_y)
         top_right = None
         top_door_rect = None
 
+    # Bottom wall
     if current_room == 1:
-        bottom_left = pygame.Rect(0, HEIGHT - wall_thick_y, (WIDTH - door_gap_x) // 2, wall_thick_y)
-        bottom_right = pygame.Rect((WIDTH + door_gap_x) // 2, HEIGHT - wall_thick_y, (WIDTH - door_gap_x) // 2, wall_thick_y)
-        bottom_door_rect = pygame.Rect((WIDTH - door_gap_x) // 2, HEIGHT - wall_thick_y, door_gap_x, wall_thick_y)
+        bottom_left = pygame.Rect(room_bounds.left, room_bounds.bottom - wall_thick_y, (room_bounds.width - door_gap_x) // 2, wall_thick_y)
+        bottom_right = pygame.Rect(room_bounds.centerx + door_gap_x // 2, room_bounds.bottom - wall_thick_y, (room_bounds.width - door_gap_x) // 2, wall_thick_y)
+        bottom_door_rect = pygame.Rect(room_bounds.centerx - door_gap_x // 2, room_bounds.bottom - wall_thick_y, door_gap_x, wall_thick_y)
     else:
-        bottom_left = pygame.Rect(0, HEIGHT - wall_thick_y, WIDTH, wall_thick_y)
+        bottom_left = pygame.Rect(room_bounds.left, room_bounds.bottom - wall_thick_y, room_bounds.width, wall_thick_y)
         bottom_right = None
         bottom_door_rect = None
 
+    # Left wall: vertical, thickness uses scale_x, height uses scale_y
     if current_room == 2:
-        left_top = pygame.Rect(0, 0, wall_thick_x, (HEIGHT - door_gap_y) // 2)
-        left_bottom = pygame.Rect(0, (HEIGHT + door_gap_y) // 2, wall_thick_x, (HEIGHT - door_gap_y) // 2)
-        left_door_rect = pygame.Rect(0, (HEIGHT - door_gap_y) // 2, wall_thick_x, door_gap_y)
+        left_top = pygame.Rect(room_bounds.left, room_bounds.top, wall_thick_x, (room_bounds.height - door_gap_y) // 2)
+        left_bottom = pygame.Rect(room_bounds.left, room_bounds.centery + door_gap_y // 2, wall_thick_x, (room_bounds.height - door_gap_y) // 2)
+        left_door_rect = pygame.Rect(room_bounds.left, room_bounds.centery - door_gap_y // 2, wall_thick_x, door_gap_y)
     else:
-        left_top = pygame.Rect(0, 0, wall_thick_x, HEIGHT)
+        left_top = pygame.Rect(room_bounds.left, room_bounds.top, wall_thick_x, room_bounds.height)
         left_bottom = None
         left_door_rect = None
 
+    # Right wall
     if current_room == 0:
-        right_top = pygame.Rect(WIDTH - wall_thick_x, 0, wall_thick_x, (HEIGHT - door_gap_y) // 2)
-        right_bottom = pygame.Rect(WIDTH - wall_thick_x, (HEIGHT + door_gap_y) // 2, wall_thick_x, (HEIGHT - door_gap_y) // 2)
-        right_door_rect = pygame.Rect(WIDTH - wall_thick_x, (HEIGHT - door_gap_y) // 2, wall_thick_x, door_gap_y)
+        right_top = pygame.Rect(room_bounds.right - wall_thick_x, room_bounds.top, wall_thick_x, (room_bounds.height - door_gap_y) // 2)
+        right_bottom = pygame.Rect(room_bounds.right - wall_thick_x, room_bounds.centery + door_gap_y // 2, wall_thick_x, (room_bounds.height - door_gap_y) // 2)
+        right_door_rect = pygame.Rect(room_bounds.right - wall_thick_x, room_bounds.centery - door_gap_y // 2, wall_thick_x, door_gap_y)
     else:
-        right_top = pygame.Rect(WIDTH - wall_thick_x, 0, wall_thick_x, HEIGHT)
+        right_top = pygame.Rect(room_bounds.right - wall_thick_x, room_bounds.top, wall_thick_x, room_bounds.height)
         right_bottom = None
         right_door_rect = None
 
+    # Collect wall pieces
     walls = []
     if top_left: walls.append(top_left)
     if top_right: walls.append(top_right)
@@ -496,6 +1079,7 @@ def create_walls_and_doors(scale_x, scale_y):
     if right_top: walls.append(right_top)
     if right_bottom: walls.append(right_bottom)
 
+    # Create door objects (spawn positions not used here)
     if top_door_rect and current_room == 0:
         doors.append(Door(top_door_rect, 1, None))
     if bottom_door_rect and current_room == 1:
@@ -506,19 +1090,28 @@ def create_walls_and_doors(scale_x, scale_y):
         doors.append(Door(right_door_rect, 2, None))
 
 def recalculate_elements():
-    global walls, deck_pos, card_back_img, doors, tables, npcs, guards, obstacles, current_scale_x, current_scale_y
+    global walls, deck_pos, card_back_img, doors, tables, playable_tables, room_props, npcs, guards, current_scale_x, current_scale_y
+    # Compute independent axis scales based on reference 1280x720
     current_scale_x = WIDTH / 1280.0
     current_scale_y = HEIGHT / 720.0
+    
+    # Scale player size
     player.resize(current_scale_x, current_scale_y)
+    # Recreate walls and doors with new scales
     create_walls_and_doors(current_scale_x, current_scale_y)
+    # Reload the current room's layout with scaled tables and entities
     set_room_layout(current_room, current_scale_x, current_scale_y)
-    all_colliders = walls + tables + [g.rect for g in guards] + [door.rect for door in doors] + obstacles
+    
+    # Ensure player is not stuck inside any collider after resize
+    all_colliders = walls + tables + [g.rect for g in guards] + [door.rect for door in doors]
     for collider in all_colliders:
         if player.rect.colliderect(collider):
+            # Push player out of collider
             overlap_left = player.rect.right - collider.left
             overlap_right = collider.right - player.rect.left
             overlap_top = player.rect.bottom - collider.top
             overlap_bottom = collider.bottom - player.rect.top
+            # Move by smallest overlap
             if overlap_left < overlap_right and overlap_left < overlap_top and overlap_left < overlap_bottom:
                 player.rect.right = collider.left
             elif overlap_right < overlap_left and overlap_right < overlap_top and overlap_right < overlap_bottom:
@@ -529,15 +1122,16 @@ def recalculate_elements():
                 player.rect.top = collider.bottom
     player.x_ratio = player.rect.centerx / WIDTH
     player.y_ratio = player.rect.centery / HEIGHT
-    player.reposition()
+    clamp_player_to_current_room()
     deck_pos = (WIDTH * 0.1, HEIGHT * 0.5)
     card_back_img = get_card_back_image(current_scale_x, current_scale_y)
 
+# Initial setup (default 1280x720)
 recalculate_elements()
 game_state, poker_game = "main_menu", None
 
 def near_table():
-    for table in tables:
+    for table in playable_tables:
         if player.rect.colliderect(table.inflate(40, 40)): return True
     return False
 
@@ -548,44 +1142,56 @@ def near_any_door():
     return None
 
 def get_door_direction(door_rect, wall_thick_x, wall_thick_y):
-    if door_rect.y == 0: return 'top'
-    if door_rect.y == HEIGHT - wall_thick_y: return 'bottom'
-    if door_rect.x == 0: return 'left'
-    if door_rect.x == WIDTH - wall_thick_x: return 'right'
+    """Return 'top', 'bottom', 'left', or 'right' based on door position."""
+    room_bounds = get_room_bounds(current_room)
+    if door_rect.y == room_bounds.top:
+        return 'top'
+    if door_rect.y == room_bounds.bottom - wall_thick_y:
+        return 'bottom'
+    if door_rect.x == room_bounds.left:
+        return 'left'
+    if door_rect.x == room_bounds.right - wall_thick_x:
+        return 'right'
     return None
 
-def teleport_player_through_door(exit_direction, wall_thick_x, wall_thick_y):
+def teleport_player_through_door(exit_direction):
+    """
+    Place the player just inside the new room, on the opposite side from which they exited.
+    """
     entry_side = {
         'top': 'bottom',
         'bottom': 'top',
         'left': 'right',
         'right': 'left'
     }.get(exit_direction, None)
+    
+    # Use player's own size to compute offset
     offset_x = player.rect.width // 2 + 10
     offset_y = player.rect.height // 2 + 10
+    room_bounds = get_room_bounds(current_room)
+    wall_thick_x, wall_thick_y = get_wall_thickness(current_room)
+    
     if entry_side == 'top':
-        player.rect.centerx = WIDTH // 2
-        player.rect.centery = wall_thick_y + offset_y
+        player.rect.centerx = room_bounds.centerx
+        player.rect.centery = room_bounds.top + wall_thick_y + offset_y
     elif entry_side == 'bottom':
-        player.rect.centerx = WIDTH // 2
-        player.rect.centery = HEIGHT - wall_thick_y - offset_y
+        player.rect.centerx = room_bounds.centerx
+        player.rect.centery = room_bounds.bottom - wall_thick_y - offset_y
     elif entry_side == 'left':
-        player.rect.centerx = wall_thick_x + offset_x
-        player.rect.centery = HEIGHT // 2
+        player.rect.centerx = room_bounds.left + wall_thick_x + offset_x
+        player.rect.centery = room_bounds.centery
     elif entry_side == 'right':
-        player.rect.centerx = WIDTH - wall_thick_x - offset_x
-        player.rect.centery = HEIGHT // 2
+        player.rect.centerx = room_bounds.right - wall_thick_x - offset_x
+        player.rect.centery = room_bounds.centery
     else:
-        player.rect.center = (WIDTH // 2, HEIGHT // 2)
-    player.x_ratio = player.rect.centerx / WIDTH
-    player.y_ratio = player.rect.centery / HEIGHT
+        player.rect.center = room_bounds.center
+    clamp_player_to_current_room()
 
 def load_card_image(card):
     try:
-        img = pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png")
         card_w = int(BASE_CARD_W * current_scale_x)
         card_h = int(BASE_CARD_H * current_scale_y)
-        return pygame.transform.smoothscale(img, (card_w, card_h))
+        return load_image_asset("ui", f"{card.rank}_of_{card.suit}.png", size=(card_w, card_h))
     except:
         return None
 
@@ -593,12 +1199,13 @@ def get_target_position_for_card(card, card_index, card_type):
     card_w = int(BASE_CARD_W * current_scale_x)
     card_h = int(BASE_CARD_H * current_scale_y)
     spacing = card_w + 10
+
     if card_type == 'human':
         x_hand = WIDTH/2 - (2 * spacing) / 2
         return (x_hand + card_index * spacing + card_w/2, HEIGHT * 0.65 + card_h/2)
     elif card_type == 'boss':
         dealer_x = 60
-        dealer_y = HEIGHT * 0.12
+        dealer_y = HEIGHT * 0.16
         return (dealer_x + card_index * spacing + card_w/2, dealer_y + card_h/2)
     elif card_type == 'community':
         total_community = len(poker_game.table.communityCards) if poker_game else 0
@@ -606,6 +1213,7 @@ def get_target_position_for_card(card, card_index, card_type):
         return (x_comm + card_index * spacing + card_w/2, HEIGHT/2)
     return (WIDTH//2, HEIGHT//2)
 
+# Store previous card states
 prev_human_cards = []
 prev_boss_cards = []
 prev_community_cards = []
@@ -628,16 +1236,22 @@ def detect_and_animate_new_cards():
     global prev_human_cards, prev_boss_cards, prev_community_cards
     if poker_game is None:
         return
+
+    # Human
     current_human = poker_game.human.hand[:]
     if len(current_human) > len(prev_human_cards):
         for i in range(len(prev_human_cards), len(current_human)):
             create_animation_for_card(current_human[i], i, 'human')
     prev_human_cards = current_human[:]
+
+    # Boss
     current_boss = poker_game.boss.hand[:]
     if len(current_boss) > len(prev_boss_cards):
         for i in range(len(prev_boss_cards), len(current_boss)):
             create_animation_for_card(current_boss[i], i, 'boss')
     prev_boss_cards = current_boss[:]
+
+    # Community
     current_community = poker_game.table.communityCards[:]
     if len(current_community) > len(prev_community_cards):
         for i in range(len(prev_community_cards), len(current_community)):
@@ -666,80 +1280,239 @@ def draw_deck(surface):
     deck_rect.center = deck_pos
     pygame.draw.rect(surface, (100, 50, 0), deck_rect, border_radius=5)
     pygame.draw.rect(surface, GOLD, deck_rect, 3, border_radius=5)
-    deck_text = font.render("DECK", True, WHITE)
+    deck_text = poker_label_font.render("DECK", True, WHITE)
     surface.blit(deck_text, deck_text.get_rect(center=deck_rect.center))
 
-def start_poker_game(room, intro_dialogue=True):
-    """Create a new poker game with fresh buy-in for both players."""
-    global poker_game, current_boss_difficulty, boss_thinking, boss_think_start_time, boss_think_duration, show_hand_menu
-    global prev_human_cards, prev_boss_cards, prev_community_cards, active_animations, animating, animating_card_keys
 
-    # Determine difficulty and cost based on room
+def room_difficulty(room):
     if room == 0:
-        diff_str = "easy"
-        diff_num = 1
-    elif room == 1:
-        diff_str = "medium"
-        diff_num = 2
+        return "easy", 1
+    if room == 1:
+        return "medium", 2
+    return "hard", 3
+
+
+def card_label(card):
+    return f"{card.rank} of {card.suit}"
+
+
+def starting_hand_score(cards):
+    category_scores = {
+        "weak": 0,
+        "playable": 1,
+        "medium": 2,
+        "strong": 3,
+        "strongest": 4,
+    }
+    category = evaluateStartingHand(cards[0], cards[1])
+    high_cards = sorted((RANK_VALUE[card.rank] for card in cards), reverse=True)
+    return (category_scores[category], high_cards)
+
+
+def best_two_card_start(cards):
+    best_pair = list(cards[:2])
+    best_score = starting_hand_score(best_pair)
+    for i in range(len(cards)):
+        for j in range(i + 1, len(cards)):
+            pair = [cards[i], cards[j]]
+            score = starting_hand_score(pair)
+            if score > best_score:
+                best_score = score
+                best_pair = pair
+    return best_pair
+
+
+def apply_start_of_hand_buffs():
+    if poker_game is None or not persistent_player.has_buff("Lucky Draw"):
+        return
+
+    current_score = starting_hand_score(poker_game.human.hand)
+    if current_score[0] > 1 or not poker_game.deck.cards:
+        return
+
+    extra_card = poker_game.deck.drawCard()
+    old_hand = poker_game.human.hand[:]
+    best_hand = best_two_card_start(old_hand + [extra_card])
+    if starting_hand_score(best_hand) > current_score:
+        poker_game.human.hand = best_hand
+        replaced = next((card for card in old_hand if card not in best_hand), None)
+        if replaced is not None:
+            set_boss_message(f"Lucky Draw swapped {card_label(replaced)} for {card_label(extra_card)}.")
+
+
+def transfer_bonus_from_boss(amount):
+    if poker_game is None or amount <= 0:
+        return 0
+    bonus = min(amount, max(0, poker_game.boss.chips))
+    poker_game.boss.chips -= bonus
+    poker_game.human.chips += bonus
+    return bonus
+
+
+def transfer_refund_from_boss(amount):
+    if poker_game is None or amount <= 0:
+        return 0
+    refund = min(amount, max(0, poker_game.boss.chips))
+    poker_game.boss.chips -= refund
+    poker_game.human.chips += refund
+    return refund
+
+
+def apply_post_hand_buffs(winner, pot_before):
+    messages = []
+
+    if winner == poker_game.human:
+        bonus_rate = 0.0
+        if persistent_player.has_buff("High Roller"):
+            bonus_rate += 0.25
+        if persistent_player.has_buff("All-In Fury") and player_raised_this_hand:
+            bonus_rate += 0.50
+
+        bonus = transfer_bonus_from_boss(int(pot_before * bonus_rate))
+        if bonus > 0:
+            if bonus_rate >= 0.75:
+                messages.append(f"High Roller + All-In Fury bonus: +${bonus}")
+            elif persistent_player.has_buff("High Roller"):
+                messages.append(f"High Roller bonus: +${bonus}")
+            else:
+                messages.append(f"All-In Fury bonus: +${bonus}")
+
+    elif winner == poker_game.boss and persistent_player.has_buff("Chip Shield"):
+        refund = transfer_refund_from_boss(int(pot_before * 0.30))
+        if refund > 0:
+            messages.append(f"Chip Shield refunded ${refund}")
+
+    if messages:
+        set_boss_message(" | ".join(messages))
+
+
+def resolve_hand_with_buffs():
+    pot_before = poker_game.table.pot
+
+    if poker_game.handWinner is not None:
+        winner = poker_game.handWinner
+        rank = None
+        poker_game.awardPot(winner)
+        apply_post_hand_buffs(winner, pot_before)
+        return winner, rank
+
+    player_cards = poker_game.human.hand + poker_game.table.communityCards
+    boss_cards = poker_game.boss.hand + poker_game.table.communityCards
+    player_rank, _ = bestHandOf7(player_cards)
+    boss_rank, _ = bestHandOf7(boss_cards)
+
+    if boss_rank > player_rank and persistent_player.has_buff("Second Chance") and not persistent_player.second_chance_used:
+        persistent_player.second_chance_used = True
+        split_pot = poker_game.table.pot // 2
+        poker_game.human.chips += split_pot
+        poker_game.boss.chips += poker_game.table.pot - split_pot
+        poker_game.table.pot = 0
+        set_boss_message("Second Chance saved the hand and forced a split pot.")
+        return None, player_rank
+
+    if player_rank > boss_rank:
+        winner = poker_game.human
+        poker_game.human.chips += poker_game.table.pot
+        print(f"{poker_game.human.name} wins with {HAND_TYPE[player_rank[0]]}")
+    elif boss_rank > player_rank:
+        winner = poker_game.boss
+        poker_game.boss.chips += poker_game.table.pot
+        print(f"{poker_game.boss.name} wins with {HAND_TYPE[boss_rank[0]]}")
     else:
-        diff_str = "hard"
-        diff_num = 3
+        winner = None
+        split_pot = poker_game.table.pot // 2
+        poker_game.human.chips += split_pot
+        poker_game.boss.chips += poker_game.table.pot - split_pot
+        print(f"tie with {HAND_TYPE[player_rank[0]]}")
 
-    # Dynamic actual cost: caps at the boss's remaining chips if they have fewer than the normal buy-in
+    poker_game.table.pot = 0
+    apply_post_hand_buffs(winner, pot_before)
+    return winner, player_rank
+
+
+def force_showdown_after_all_in():
+    if poker_game is None or poker_game.phase == "handCheck":
+        return
+
+    while len(poker_game.table.communityCards) < 5 and poker_game.deck.cards:
+        poker_game.table.addCard(poker_game.deck.drawCard())
+
+    poker_game.phase = "handCheck"
+    poker_game.phaseIndex = GAMEPHASE.index("handCheck")
+    poker_game.playerActed = False
+    poker_game.bossActed = False
+    detect_and_animate_new_cards()
+
+
+def refund_uncalled_all_in_chips():
+    if poker_game is None:
+        return 0
+
+    human = poker_game.human
+    boss = poker_game.boss
+    refund = 0
+
+    if human.currentContribution > boss.currentContribution and boss.chips <= 0:
+        refund = human.currentContribution - boss.currentContribution
+        human.currentContribution -= refund
+        human.chips += refund
+    elif boss.currentContribution > human.currentContribution and human.chips <= 0:
+        refund = boss.currentContribution - human.currentContribution
+        boss.currentContribution -= refund
+        boss.chips += refund
+
+    if refund > 0:
+        poker_game.table.pot = max(0, poker_game.table.pot - refund)
+        poker_game.currentBet = max(human.currentContribution, boss.currentContribution)
+
+    return refund
+
+
+def start_poker_game(room, intro_dialogue=True):
+    """Create a poker game using the persistent player and boss chip stacks."""
+    global poker_game, current_boss_difficulty, boss_thinking, boss_think_start_time, boss_think_duration
+    global show_hand_menu, prev_human_cards, prev_boss_cards, prev_community_cards
+    global animating, boss_message_text, player_raised_this_hand
+
+    diff_str, diff_num = room_difficulty(room)
     actual_cost = min(ENTRY_COST[diff_str], persistent_player.boss_chips[diff_str])
-
-    # Check if player can play this table (chips and progression)
     allowed, msg = persistent_player.can_play_table(diff_str, actual_cost)
     if not allowed:
         set_boss_message(msg)
         return False
 
-    # Show introductory dialogue if requested and not already shown for this boss
     if intro_dialogue and not table_intro_shown.get(diff_str, False):
-        if room == 0:
-            lines = [
-                "You approach the worn green felt table.",
-                "The Old Guard looks up: 'So the Agency sent you, huh?'",
-                f"'Buy-in is ${actual_cost}. Let's see if you're for real.'"
-            ]
-        elif room == 1:
-            lines = [
-                "The blue velvet table gleams under the dim light.",
-                "The Sharp Lady smiles: 'Impressive, you beat the Old Guard.'",
-                f"'Buy-in is ${actual_cost}. My superiors will be watching.'"
-            ]
+        boss_name = BOSS_DIALOGUE[diff_str]["name"]
+        lines = [
+            f"You approach {boss_name}'s table.",
+            f"{boss_name}: 'Buy-in is ${actual_cost}. Let's see what you have.'",
+        ]
+        if diff_str == "easy":
+            lines.insert(1, "The worn green felt has seen better nights.")
+        elif diff_str == "medium":
+            lines.insert(1, "The blue room goes quiet as the Sharp Lady smiles.")
         else:
-            lines = [
-                "The red felt table sits ominously in the corner.",
-                "The Enforcer leans forward: 'You've made it this far, agent.'",
-                f"'Buy-in ${actual_cost}. The leader wants to meet you.'"
-            ]
+            lines.insert(1, "The red room feels colder than the hallway behind you.")
         show_dialogue_screen(lines)
         table_intro_shown[diff_str] = True
 
-    # Deduct player's buy-in
     persistent_player.chips -= actual_cost
 
-    # Create new poker game objects
     human_player = Player("You")
     human_player.chips = persistent_player.chips
-    
+
     boss_name = BOSS_DIALOGUE[diff_str]["name"]
     boss_player = Boss(boss_name, "serious", diff_num)
-    boss_player.chips = persistent_player.boss_chips[diff_str] 
-
-    boss_player.chips -= actual_cost
+    boss_player.chips = persistent_player.boss_chips[diff_str] - actual_cost
 
     poker_game = ActiveGame(human_player, boss_player)
     current_boss_difficulty = diff_str
-
-    # Start the hand (deal cards)
+    boss_message_text = None
+    player_raised_this_hand = False
     poker_game.newHand()
-
-    # Set pot to total buy-ins (player + boss)
+    apply_start_of_hand_buffs()
     poker_game.table.pot = actual_cost * 2
 
-    # Reset animation and card tracking
     prev_human_cards = []
     prev_boss_cards = []
     prev_community_cards = []
@@ -748,35 +1521,31 @@ def start_poker_game(room, intro_dialogue=True):
     animating_card_keys.clear()
     detect_and_animate_new_cards()
 
-    boss_message_text = None
     boss_thinking = False
+    boss_think_start_time = 0
+    boss_think_duration = 0
     show_hand_menu = False
     return True
 
+
 def start_table_dialogue(room):
-    """Entry point for playing at a table, includes intro dialogue and checks."""
     global game_state
     if start_poker_game(room, intro_dialogue=True):
         game_state = "poker"
 
+
 def restart_poker_game():
-    """Restart the poker game at the same table (used for 'Play Again')."""
-    global game_state, poker_game
-    # Save current chips before cleanup
+    global game_state
     if poker_game:
         persistent_player.chips = poker_game.human.chips
         persistent_player.boss_chips[current_boss_difficulty] = poker_game.boss.chips
-    # Clean up existing game state
     cleanup_poker_state()
-    # Start a new game at the current room, skipping intro dialogue
-    if start_poker_game(current_room, intro_dialogue=False):
-        game_state = "poker"
-    else:
-        # If cannot start (e.g., insufficient chips), return to world
-        game_state = "world"
+    game_state = "poker" if start_poker_game(current_room, intro_dialogue=False) else "world"
+
 
 def cleanup_poker_state():
-    global active_animations, animating, animating_card_keys, prev_human_cards, prev_boss_cards, prev_community_cards, boss_message_text, boss_message_timer, boss_thinking, poker_game, show_hand_menu
+    global active_animations, animating, animating_card_keys, prev_human_cards, prev_boss_cards, prev_community_cards
+    global boss_message_text, boss_message_timer, boss_thinking, poker_game, show_hand_menu, player_raised_this_hand
     active_animations.clear()
     animating = False
     animating_card_keys.clear()
@@ -788,30 +1557,31 @@ def cleanup_poker_state():
     boss_thinking = False
     poker_game = None
     show_hand_menu = False
+    player_raised_this_hand = False
+    close_raise_prompt()
+
 
 def check_and_exit_poker_if_defeated():
-    global game_state, poker_game
+    global game_state
     if poker_game is None:
         return
     if poker_game.human.chips <= 0:
-        show_dialogue_screen(["You're out of chips! Your cover is blown...", "The Syndicate vanishes into the night."])
+        show_dialogue_screen(["You're out of chips! Your cover is blown.", "The Syndicate vanishes into the night."])
         game_state = "game_over"
         cleanup_poker_state()
     elif poker_game.boss.chips <= 0:
         persistent_player.chips = poker_game.human.chips
         persistent_player.boss_chips[current_boss_difficulty] = 0
-        
-        # Display their defeat dialogue and give buff
         show_dialogue_screen(BOSS_DIALOGUE[current_boss_difficulty]["defeat"])
         persistent_player.add_buff(BOSS_DIALOGUE[current_boss_difficulty]["buff"])
-        
-        diff = current_boss_difficulty
+
+        if current_boss_difficulty not in persistent_player.beaten_bosses:
+            persistent_player.beaten_bosses.append(current_boss_difficulty)
+
+        defeated = current_boss_difficulty
         cleanup_poker_state()
-        
-        if diff == "hard":
-            game_state = "ending"
-        else:
-            game_state = "world"
+        game_state = "ending" if defeated == "hard" else "world"
+
 
 def show_dialogue_screen(lines):
     waiting = True
@@ -820,13 +1590,13 @@ def show_dialogue_screen(lines):
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
+            if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
                 waiting = False
         screen.fill((0, 0, 0))
         y_offset = HEIGHT // 2 - (len(lines) * 30) // 2
         for line in lines:
             text_surf = font.render(line, True, WHITE)
-            screen.blit(text_surf, (WIDTH//2 - text_surf.get_width()//2, y_offset))
+            screen.blit(text_surf, (WIDTH // 2 - text_surf.get_width() // 2, y_offset))
             y_offset += 40
         pygame.display.flip()
         clock.tick(30)
@@ -843,32 +1613,19 @@ while running:
     last_time = current_time
 
     for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+        if event.type == pygame.QUIT: running = False
         if event.type == pygame.VIDEORESIZE:
             WIDTH, HEIGHT = event.size
             screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
             recalculate_elements()
 
-        # Main menu handling
         if game_state == "main_menu":
             if new_game_btn.clicked(event):
-                # Start fresh with story mode
-                persistent_player = PersistentPlayer("You")
-                persistent_player.chips = 500
-                persistent_player.beaten_bosses = []
-                persistent_player.buffs = []
-                persistent_player.second_chance_used = False
-                persistent_player.boss_chips = {"easy": 1000, "medium": 2000, "hard": 4000}
-                
-                table_intro_shown = {"easy": False, "medium": False, "hard": False}
-                current_room = 0
-                player.x_ratio = 0.1
-                player.y_ratio = 0.1
-                recalculate_elements()
-                story_mode_active = True
-                current_story_page = 0
+                reset_new_game()
                 game_state = "story"
+            if free_play_btn.clicked(event):
+                reset_free_play()
+                game_state = "world"
             if continue_btn.clicked(event):
                 if load_game():
                     game_state = "world"
@@ -877,9 +1634,8 @@ while running:
             if quit_main_btn.clicked(event):
                 running = False
 
-        # Story mode (using imported STORY_PAGES)
         if game_state == "story":
-            if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
+            if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
                 if current_story_page + 1 < len(STORY_PAGES):
                     current_story_page += 1
                 else:
@@ -892,7 +1648,6 @@ while running:
                     player.y_ratio = player.rect.centery / HEIGHT
             continue
 
-        # Escape menu in world
         if game_state == "world" and escape_menu_active:
             if resume_btn.clicked(event):
                 escape_menu_active = False
@@ -915,16 +1670,9 @@ while running:
                 escape_menu_active = True
             if event.type == pygame.KEYDOWN and event.key == pygame.K_e:
                 if near_table():
-                    if current_room == 0:
-                        diff_str = "easy"
-                    elif current_room == 1:
-                        diff_str = "medium"
-                    else:
-                        diff_str = "hard"
-                        
+                    diff_str, _ = room_difficulty(current_room)
                     actual_cost = min(ENTRY_COST[diff_str], persistent_player.boss_chips[diff_str])
                     allowed, msg = persistent_player.can_play_table(diff_str, actual_cost)
-                    
                     if not allowed:
                         set_boss_message(msg)
                     else:
@@ -932,59 +1680,57 @@ while running:
                 else:
                     door = near_any_door()
                     if door:
-                        # Door interactions with character dialogues
                         if door.target_room == 2 and not persistent_player.has_buff("High Roller"):
                             set_boss_message(BOSS_DIALOGUE["medium"]["door_lock"])
                             continue
                         if door.target_room == 1 and not persistent_player.has_buff("Lucky Draw"):
                             set_boss_message(BOSS_DIALOGUE["easy"]["door_lock"])
                             continue
-                        
-                        wall_thick_x = int(BASE_WALL_THICK * current_scale_x)
-                        wall_thick_y = int(BASE_WALL_THICK * current_scale_y)
+                        wall_thick_x, wall_thick_y = get_wall_thickness(current_room)
                         direction = get_door_direction(door.rect, wall_thick_x, wall_thick_y)
                         current_room = door.target_room
                         recalculate_elements()
                         if direction:
-                            wall_thick_x = int(BASE_WALL_THICK * current_scale_x)
-                            wall_thick_y = int(BASE_WALL_THICK * current_scale_y)
-                            teleport_player_through_door(direction, wall_thick_x, wall_thick_y)
+                            teleport_player_through_door(direction)
 
         elif game_state == "poker":
+            if raise_prompt_active:
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        close_raise_prompt()
+                    elif event.key == pygame.K_RETURN:
+                        submit_typed_raise(current_time)
+                    elif event.key == pygame.K_BACKSPACE:
+                        raise_input_text = raise_input_text[:-1]
+                    elif event.unicode.isdigit() and len(raise_input_text) < 7:
+                        raise_input_text += event.unicode
+
+                if raise_confirm_btn.clicked(event):
+                    submit_typed_raise(current_time)
+                if raise_all_in_btn.clicked(event):
+                    submit_all_in(current_time)
+                if raise_cancel_btn.clicked(event):
+                    close_raise_prompt()
+                continue
+
             if not animating and not boss_thinking and not show_hand_menu:
                 if checkCall_btn.clicked(event):
                     callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
-                    if callAmount > poker_game.human.chips:
-                        set_boss_message("Not enough chips to call!")
-                        continue
-                    if callAmount <= 0:
-                        action = Action("check")
-                    else:
-                        action = Action("call")
+                    action = Action("check") if callAmount <= 0 else Action("call")
                     action.processAction(poker_game.currentPlayer, poker_game)
+                    refund_uncalled_all_in_chips()
                     poker_game.playerActed = True
+                    if action.type == "call" and (poker_game.human.chips <= 0 or poker_game.boss.chips <= 0):
+                        force_showdown_after_all_in()
+                        continue
                     boss_thinking = True
                     boss_think_start_time = current_time
                     boss_think_duration = random.randint(500, 2000)
-                    
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
                     set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
 
                 if raise_btn.clicked(event):
-                    callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
-                    total_needed = callAmount + 50
-                    if total_needed > poker_game.human.chips:
-                        set_boss_message(f"Not enough chips to raise! Need ${total_needed}.")
-                        continue
-                    action = Action("raise", 50)
-                    action.processAction(poker_game.currentPlayer, poker_game)
-                    poker_game.playerActed = True
-                    boss_thinking = True
-                    boss_think_start_time = current_time
-                    boss_think_duration = random.randint(500, 2000)
-                    
-                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["think"])
-                    set_boss_message(f"{BOSS_DIALOGUE[current_boss_difficulty]['name']}: '{dialogue_option}'")
+                    open_raise_prompt()
 
                 if fold_btn.clicked(event):
                     action = Action("fold")
@@ -1011,41 +1757,49 @@ while running:
                     game_state = "world"
 
         if event.type == pygame.KEYDOWN:
-            if game_state == "poker" and poker_game is not None and poker_game.phase == "handCheck" and not animating and not boss_thinking and not show_hand_menu:
-                # Hand ended – menu is shown automatically, do nothing
-                pass
+            if game_state in ("game_over", "ending") and event.key == pygame.K_ESCAPE:
+                game_state = "main_menu"
 
     # UPDATE
+    # Compute speed scales for player and NPCs based on window dimensions
     speed_scale_x = WIDTH / 1280.0
     speed_scale_y = HEIGHT / 720.0
     player_speed_x = player.base_speed * speed_scale_x
     player_speed_y = player.base_speed * speed_scale_y
-    all_colliders = walls + tables + [g.rect for g in guards] + [door.rect for door in doors] + obstacles
+    
+    all_colliders = walls + tables + [g.rect for g in guards] + [door.rect for door in doors]
+    if game_state != "poker":
+        update_boss_message(dt)
 
     if game_state == "world" and not escape_menu_active:
         keys = pygame.key.get_pressed()
         dx = (keys[pygame.K_d] - keys[pygame.K_a]) * player_speed_x
         dy = (keys[pygame.K_s] - keys[pygame.K_w]) * player_speed_y
         player.move(dx, dy, all_colliders)
-        for npc in npcs:
+        clamp_player_to_current_room()
+        player.update_animation(dt, min(current_scale_x, current_scale_y))
+        for npc in npcs: 
             npc.update(all_colliders, speed_scale_x, speed_scale_y)
 
     if game_state == "poker" and poker_game is not None:
+        # Update boss message timer
         update_boss_message(dt)
+
+        # Update animations (movement)
         update_animations()
 
         if boss_thinking and not animating:
             if current_time - boss_think_start_time >= boss_think_duration:
                 callAmount = poker_game.getCallAmount(poker_game.boss)
-                if callAmount > poker_game.boss.chips:
-                    boss_action = Action("fold")
-                else:
-                    boss_action = poker_game.boss.chooseAction(poker_game, poker_game.table, callAmount)
-                
+                boss_action = poker_game.boss.chooseAction(poker_game, poker_game.table, callAmount)
+
+                boss_contribution_before = poker_game.boss.currentContribution
                 boss_action.processAction(poker_game.boss, poker_game)
+                boss_paid = poker_game.boss.currentContribution - boss_contribution_before
+                refund_uncalled_all_in_chips()
                 poker_game.bossActed = True
                 boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
-                
+
                 if boss_action.type == "fold":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["fold"])
                     set_boss_message(f"{boss_name}: '{dialogue_option}'")
@@ -1056,15 +1810,19 @@ while running:
                     poker_game.bossActed = False
                 elif boss_action.type == "call":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["call"])
-                    set_boss_message(f"{boss_name}: '{dialogue_option}' (${callAmount})")
+                    all_in_note = " all in" if poker_game.boss.chips <= 0 else ""
+                    set_boss_message(f"{boss_name}: '{dialogue_option}' (${boss_paid}{all_in_note})")
                 elif boss_action.type == "raise":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["raise"])
                     set_boss_message(f"{boss_name}: '{dialogue_option}' (Raise to ${poker_game.currentBet})")
                 elif boss_action.type == "check":
                     dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["check"])
                     set_boss_message(f"{boss_name}: '{dialogue_option}'")
-                
+
                 boss_thinking = False
+
+                if boss_action.type == "call" and (poker_game.human.chips <= 0 or poker_game.boss.chips <= 0):
+                    force_showdown_after_all_in()
 
         if not animating and not boss_thinking:
             if poker_game.phase != "handCheck" and poker_game.playerActed and poker_game.bossActed:
@@ -1085,15 +1843,11 @@ while running:
                 poker_game.changePhase()
                 detect_and_animate_new_cards()
             elif poker_game.phase == "handCheck" and not poker_game.showdownDone:
-                if poker_game.handWinner is not None:
-                    poker_game.awardPot(poker_game.handWinner)
-                    winner = poker_game.handWinner
-                else:
-                    winner, rank = poker_game.showDown()
+                winner, rank = resolve_hand_with_buffs()
                 poker_game.showdownDone = True
                 persistent_player.chips = poker_game.human.chips
+                persistent_player.boss_chips[current_boss_difficulty] = poker_game.boss.chips
                 last_hand_player_won = (winner == poker_game.human)
-                
                 show_hand_menu = True
                 check_and_exit_poker_if_defeated()
                 if game_state != "poker":
@@ -1105,8 +1859,10 @@ while running:
         title = title_font.render("TEXAS HOLD'EM", True, GOLD)
         screen.blit(title, title.get_rect(center=(WIDTH/2, HEIGHT*0.2)))
         new_game_btn.draw(screen)
+        free_play_btn.draw(screen)
         continue_btn.draw(screen)
         quit_main_btn.draw(screen)
+        draw_boss_message(screen)
 
     elif game_state == "story":
         screen.fill((0, 0, 0))
@@ -1116,74 +1872,63 @@ while running:
             text = font.render(line, True, WHITE)
             screen.blit(text, (WIDTH//2 - text.get_width()//2, y_offset))
             y_offset += 40
-        if current_story_page + 1 >= len(STORY_PAGES):
-            prompt = "Press any key to begin"
-        else:
-            prompt = "Press any key to continue..."
+        prompt = "Press any key to begin" if current_story_page + 1 >= len(STORY_PAGES) else "Press any key to continue..."
         prompt_surf = font.render(prompt, True, LIGHT_GOLD)
         screen.blit(prompt_surf, (WIDTH//2 - prompt_surf.get_width()//2, HEIGHT*0.85))
 
     elif game_state == "world":
         draw_tiled_floor(screen, current_room)
         for wall in walls:
-            pygame.draw.rect(screen, WALL, wall)
+            wall_surface = get_world_prop_surface("brick_wall", wall)
+            screen.blit(wall_surface, wall.topleft)
         for door in doors:
-            mouse_over = door.rect.collidepoint(pygame.mouse.get_pos())
-            color = DOOR_HIGHLIGHT if mouse_over else DOOR_COLOR
-            pygame.draw.rect(screen, color, door.rect)
-            pygame.draw.rect(screen, GOLD, door.rect, 2)
-            if door.rect.width > door.rect.height:
-                knob_pos = (door.rect.right - 10, door.rect.centery)
-            else:
-                knob_pos = (door.rect.centerx, door.rect.bottom - 10)
-            pygame.draw.circle(screen, GOLD, knob_pos, 4)
-        for table in tables:
-            table_color = ROOM_COLORS[current_room][0]
-            pygame.draw.rect(screen, table_color, table, border_radius=15)
-            pygame.draw.rect(screen, GOLD, table, 2, border_radius=15)
-        for obs in obstacles:
-            pygame.draw.rect(screen, (100, 70, 40), obs)
-        for npc in npcs:
-            npc.draw(screen)
-        for guard in guards:
-            guard.draw(screen)
-        player.draw(screen)
+            draw_door_hint(screen, door)
+        for prop_name, prop_rect in room_props:
+            draw_world_prop(screen, prop_name, prop_rect)
+        draw_depth_sorted_world_objects(screen)
 
-        # Chip tracker
         chips_text = font.render(f"Chips: ${persistent_player.chips}", True, WHITE)
-        screen.blit(chips_text, (WIDTH - 150, 20))
-
+        screen.blit(chips_text, (WIDTH - 180, 20))
+        if persistent_player.buffs:
+            buff_text = font.render("Buffs: " + ", ".join(persistent_player.buffs), True, LIGHT_GOLD)
+            screen.blit(buff_text, (20, 20))
+        
+        # Show interaction prompts
         if near_table():
-            diff_str = "easy" if current_room == 0 else ("medium" if current_room == 1 else "hard")
-            
+            diff_str, _ = room_difficulty(current_room)
             if persistent_player.boss_chips[diff_str] <= 0:
-                prompt = "The table is empty. The boss has left."
+                prompt_text = "The table is empty. The boss has left."
             else:
                 actual_cost = min(ENTRY_COST[diff_str], persistent_player.boss_chips[diff_str])
-                
-                if current_room == 0:
-                    prompt = f"Press E to Play Poker (Easy) - Buy-in ${actual_cost}"
-                elif current_room == 1:
-                    if persistent_player.has_buff("Lucky Draw"):
-                        prompt = f"Press E to Play Poker (Medium) - Buy-in ${actual_cost}"
-                    else:
-                        prompt = "The Sharp Lady is ignoring you."
+                if diff_str == "easy":
+                    prompt_text = f"Press E to Play Poker (Easy) - Buy-in ${actual_cost}"
+                elif diff_str == "medium":
+                    prompt_text = (
+                        f"Press E to Play Poker (Medium) - Buy-in ${actual_cost}"
+                        if persistent_player.has_buff("Lucky Draw")
+                        else "The Sharp Lady is ignoring you."
+                    )
                 else:
-                    if persistent_player.has_buff("High Roller"):
-                        prompt = f"Press E to Play Poker (Hard) - Buy-in ${actual_cost}"
-                    else:
-                        prompt = "The Enforcer refuses to play you."
-            screen.blit(font.render(prompt, True, WHITE), (WIDTH/2 - font.size(prompt)[0]//2, HEIGHT*0.9))
+                    prompt_text = (
+                        f"Press E to Play Poker (Hard) - Buy-in ${actual_cost}"
+                        if persistent_player.has_buff("High Roller")
+                        else "The Enforcer refuses to play you."
+                    )
+            prompt = font.render(prompt_text, True, WHITE)
+            screen.blit(prompt, prompt.get_rect(center=(WIDTH/2, HEIGHT*0.9)))
         else:
             door = near_any_door()
             if door:
                 if door.target_room == 2 and not persistent_player.has_buff("High Roller"):
-                    prompt = "Door locked! Face the Sharp Lady first."
+                    prompt_text = "Door locked! Face the Sharp Lady first."
                 elif door.target_room == 1 and not persistent_player.has_buff("Lucky Draw"):
-                    prompt = "Door locked! The Old Guard blockades your path."
+                    prompt_text = "Door locked! The Old Guard blockades your path."
                 else:
-                    prompt = "Press E to go through door"
-                screen.blit(font.render(prompt, True, WHITE), (WIDTH/2 - font.size(prompt)[0]//2, HEIGHT*0.9))
+                    prompt_text = "Press E to go through door"
+                prompt = font.render(prompt_text, True, WHITE)
+                screen.blit(prompt, prompt.get_rect(center=(WIDTH/2, HEIGHT*0.9)))
+
+        draw_boss_message(screen)
 
         if escape_menu_active:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -1195,65 +1940,84 @@ while running:
             abandon_btn.draw(screen)
             save_exit_btn.draw(screen)
             resume_btn.draw(screen)
-
+    
     elif game_state == "poker":
         draw_poker_background(screen, current_room)
-        pot_txt = font.render(f"Pot: ${poker_game.table.pot}", True, WHITE)
-        screen.blit(pot_txt, pot_txt.get_rect(center=(WIDTH/2, HEIGHT/10)))
+        pot_txt = poker_label_font.render(f"Pot: ${poker_game.table.pot}", True, WHITE)
+        screen.blit(pot_txt, pot_txt.get_rect(center=(WIDTH/2, HEIGHT * 0.14)))
+
         card_w = int(BASE_CARD_W * current_scale_x)
         card_h = int(BASE_CARD_H * current_scale_y)
+        
         draw_deck(screen)
+
+        # --- DEALER HAND ---
         dealer_x = 60
-        dealer_y = HEIGHT * 0.12
+        dealer_y = HEIGHT * 0.16
         boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
-        dealer_label = font.render(f"{boss_name} Chips: ${poker_game.boss.chips}", True, GOLD)
+        dealer_label = poker_label_font.render(f"{boss_name} Chips: ${poker_game.boss.chips}", True, GOLD)
         screen.blit(dealer_label, (dealer_x, dealer_y - 30))
+
+        # --- Update Button Text ----
         if not animating and not boss_thinking and not show_hand_menu:
             callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
+
             if callAmount <= 0:
                 checkCall_btn.text = "Check"
             else:
                 checkCall_btn.text = f"Call (${callAmount})"
-            raise_btn.text = "Raise (50$)"
-        # Draw dealer cards
+
+            raise_btn.text = "Raise"
+        
+        # Draw dealer cards (skip animating ones)
         for i, card in enumerate(poker_game.boss.hand):
             if ('boss', i) in animating_card_keys:
                 continue
             if poker_game.phase == "handCheck":
                 try:
-                    img = pygame.transform.smoothscale(pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png"), (card_w, card_h))
+                    img = load_image_asset("ui", f"{card.rank}_of_{card.suit}.png", size=(card_w, card_h))
                     screen.blit(img, (dealer_x + i*(card_w + 5), dealer_y))
-                except:
+                except: 
                     pygame.draw.rect(screen, WHITE, (dealer_x + i*(card_w + 5), dealer_y, card_w, card_h), border_radius=5)
             else:
+                # card backs
                 pygame.draw.rect(screen, (150, 0, 0), (dealer_x + i*(card_w + 5), dealer_y, card_w, card_h), border_radius=5)
                 pygame.draw.rect(screen, GOLD, (dealer_x + i*(card_w + 5), dealer_y, card_w, card_h), 2, border_radius=5)
-        # Community cards
+
+        # Community Cards (skip animating ones)
         total_community = len(poker_game.table.communityCards)
         x_comm = WIDTH/2 - (total_community * (card_w + 10)) / 2
         for i, card in enumerate(poker_game.table.communityCards):
             if ('community', i) in animating_card_keys:
                 continue
             try:
-                img = pygame.transform.smoothscale(pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png"), (card_w, card_h))
+                img = load_image_asset("ui", f"{card.rank}_of_{card.suit}.png", size=(card_w, card_h))
                 screen.blit(img, (x_comm + i*(card_w + 10), HEIGHT/2 - card_h/2))
-            except:
+            except: 
                 pygame.draw.rect(screen, WHITE, (x_comm + i*(card_w+10), HEIGHT/2 - card_h/2, card_w, card_h))
-        # Human hand
+
+        # Human Player Hand (skip animating ones)
         x_hand = WIDTH/2 - (2 * (card_w + 10)) / 2
         for i, card in enumerate(poker_game.human.hand):
             if ('human', i) in animating_card_keys:
                 continue
             try:
-                img = pygame.transform.smoothscale(pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png"), (card_w, card_h))
+                img = load_image_asset("ui", f"{card.rank}_of_{card.suit}.png", size=(card_w, card_h))
                 screen.blit(img, (x_hand + i*(card_w + 10), HEIGHT*0.65))
-            except:
+            except: 
                 pygame.draw.rect(screen, WHITE, (x_hand + i*(card_w+10), HEIGHT*0.65, card_w, card_h))
+
+        # Draw flying animations
         for anim in active_animations:
             anim.draw(screen)
+
+        # Draw boss action message
         draw_boss_message(screen)
-        chips_text = font.render(f"Your Chips: ${poker_game.human.chips}", True, WHITE)
-        screen.blit(chips_text, (20, HEIGHT - 40))
+        chips_text = poker_label_font.render(f"Your Chips: ${poker_game.human.chips}", True, WHITE)
+        screen.blit(chips_text, (16, HEIGHT - 30))
+        if persistent_player.buffs:
+            buff_text = poker_small_font.render("Buffs: " + ", ".join(persistent_player.buffs), True, LIGHT_GOLD)
+            screen.blit(buff_text, (16, HEIGHT - 56))
 
         if show_hand_menu and not animating:
             if persistent_player.boss_chips[current_boss_difficulty] > 0:
@@ -1262,21 +2026,23 @@ while running:
             result_text = "You won the hand!" if last_hand_player_won else "You lost the hand."
             text_surf = font.render(result_text, True, GOLD)
             screen.blit(text_surf, text_surf.get_rect(center=(WIDTH/2, HEIGHT*0.75)))
-        elif poker_game.phase != "handCheck" and not animating and not boss_thinking:
+        elif poker_game.phase != "handCheck" and not animating and not boss_thinking and not raise_prompt_active:
             for btn in [checkCall_btn, raise_btn, fold_btn, leave_btn]:
                 btn.draw(screen)
         elif boss_thinking:
             thinking_text = font.render("Boss is thinking...", True, LIGHT_GOLD)
             screen.blit(thinking_text, thinking_text.get_rect(center=(WIDTH/2, HEIGHT * 0.95)))
+                
         if animating:
             dealing_txt = font.render("Dealing cards...", True, LIGHT_GOLD)
             screen.blit(dealing_txt, dealing_txt.get_rect(center=(WIDTH/2, HEIGHT * 0.95)))
 
+        draw_raise_prompt(screen)
+
     elif game_state == "game_over":
         screen.fill((0, 0, 0))
-        lines = GAME_OVER_TEXT
         y_offset = HEIGHT // 2 - 100
-        for line in lines:
+        for line in GAME_OVER_TEXT:
             text = font.render(line, True, WHITE)
             screen.blit(text, (WIDTH//2 - text.get_width()//2, y_offset))
             y_offset += 40
@@ -1286,9 +2052,8 @@ while running:
 
     elif game_state == "ending":
         screen.fill((0, 0, 0))
-        lines = ENDING_TEXT
         y_offset = HEIGHT // 2 - 120
-        for line in lines:
+        for line in ENDING_TEXT:
             text = font.render(line, True, WHITE)
             screen.blit(text, (WIDTH//2 - text.get_width()//2, y_offset))
             y_offset += 40
