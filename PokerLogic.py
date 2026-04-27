@@ -120,6 +120,13 @@ class Boss(Player):
                 return Action("raise", max(50, game.table.pot // 3))
 
             return Action("check")
+        
+        if len(game.table.communityCards) == 0:
+            if strength in ["strongest", "strong", "medium", "playable"]:
+                return Action("call")
+
+            if strength == "weak" and callRatio < 0.4:
+                return Action("call")
 
         if strength == "strongest":
             if callRatio < 1.0:
