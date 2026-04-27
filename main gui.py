@@ -52,12 +52,22 @@ BASE_TABLE_H = 80
 BASE_CARD_W = 80
 BASE_CARD_H = 112
 
+# All obstacles will be this size (64x64 pixels, roughly twice the original smallest size)
+OBSTACLE_SIZE = 64
+
 title_font = pygame.font.SysFont("arialblack", 80)
 font = pygame.font.SysFont(None, 32)
 boss_font = pygame.font.SysFont("arialblack", 28)
 big_font = pygame.font.SysFont("arialblack", 60)
 
 sprite_loader = SpriteLoader(asset_root="ui")
+
+# Load the box sprite for obstacles
+box_sprite = None
+try:
+    box_sprite = pygame.image.load("ui/boxes.png").convert_alpha()
+except Exception as e:
+    print("Could not load boxes.png:", e)
 
 event_log = []
 MAX_LOG_LINES = 5
@@ -251,26 +261,38 @@ def set_room_layout(room_idx, scale_x, scale_y):
     tables.clear()
     dealers.clear()
 
+    # Helper to create an obstacle of fixed size centered at given coordinates
+    def add_obstacle(center_x_ratio, center_y_ratio):
+        width = int(OBSTACLE_SIZE * scale_x)
+        height = int(OBSTACLE_SIZE * scale_y)
+        center_x = WIDTH * center_x_ratio
+        center_y = HEIGHT * center_y_ratio
+        rect = pygame.Rect(0, 0, width, height)
+        rect.center = (center_x, center_y)
+        obstacles.append(rect)
+
     if room_idx == 0:          # easy room
         table_rect = pygame.Rect(WIDTH * 0.3, HEIGHT * 0.3, table_w, table_h)
         tables.append(table_rect)
         dealers.append(Dealer(table_rect, "easy"))
-        obs1 = pygame.Rect(WIDTH*0.15, HEIGHT*0.6, 30, 30)
-        obs2 = pygame.Rect(WIDTH*0.7, HEIGHT*0.8, 50, 30)
-        obs3 = pygame.Rect(WIDTH*0.85, HEIGHT*0.2, 40, 40)
-        obstacles.extend([obs1, obs2, obs3])
+        # Three obstacles, all same size, placed at original approximate positions
+        add_obstacle(0.15, 0.6)   # was (WIDTH*0.15, HEIGHT*0.6)
+        add_obstacle(0.7, 0.8)    # was (WIDTH*0.7, HEIGHT*0.8)
+        add_obstacle(0.85, 0.2)   # was (WIDTH*0.85, HEIGHT*0.2)
     elif room_idx == 1:        # medium room
         table_rect = pygame.Rect(WIDTH * 0.5, HEIGHT * 0.5, table_w, table_h)
         tables.append(table_rect)
         dealers.append(Dealer(table_rect, "medium"))
-        obs1 = pygame.Rect(WIDTH*0.2, HEIGHT*0.2, 60, 60)
-        obs2 = pygame.Rect(WIDTH*0.75, HEIGHT*0.7, 45, 45)
-        obs3 = pygame.Rect(WIDTH*0.1, HEIGHT*0.8, 35, 60)
-        obstacles.extend([obs1, obs2, obs3])
+        add_obstacle(0.2, 0.2)
+        add_obstacle(0.75, 0.7)
+        add_obstacle(0.1, 0.8)
     else:                       # hard room
         table_rect = pygame.Rect(WIDTH * 0.5, HEIGHT * 0.4, table_w, table_h)
         tables.append(table_rect)
         dealers.append(Dealer(table_rect, "hard"))
+        # Hard room originally had no obstacles; we add two for visual interest
+        add_obstacle(0.2, 0.6)
+        add_obstacle(0.8, 0.7)
 
     for dealer in dealers:
         dealer.resize(scale_x, scale_y)
@@ -1173,8 +1195,14 @@ while running:
         for dealer in dealers:
             dealer.draw(screen)
 
+        # Draw all obstacles using the box sprite (scaled to the obstacle rect)
         for obs in obstacles:
-            pygame.draw.rect(screen, (100, 70, 40), obs)
+            if box_sprite:
+                scaled_box = pygame.transform.scale(box_sprite, obs.size)
+                screen.blit(scaled_box, obs.topleft)
+            else:
+                # Fallback in case the image is missing
+                pygame.draw.rect(screen, (100, 70, 40), obs)
 
         player.draw(screen)
 
