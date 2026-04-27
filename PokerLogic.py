@@ -112,36 +112,43 @@ class Boss(Player):
         if call == 0:
             if strength == "strongest":
                 return Action("raise", max(50, game.table.pot // 2))
+
             if strength == "strong" and random.random() < 0.4:
                 return Action("raise", max(50, game.table.pot // 2))
+
             if len(game.table.communityCards) > 0 and strength in ["weak", "medium"] and random.random() < 0.2:
-                return Action("raise", max(50, game.table.pot // 3))   
+                return Action("raise", max(50, game.table.pot // 3))
+
             return Action("check")
+
         if strength == "strongest":
             if callRatio < 1.0:
                 return Action("raise", max(50, game.table.pot // 2))
             return Action("call")
-        if strength == "strong" and callRatio < 0.9 and stackRatio < 0.6:
-            return Action("call")
-        if strength == "medium" and callRatio < 0.45 and stackRatio < .35:
-            return Action("call")
-        if strength == "playable" and callRatio < .2 and stackRatio < .2:
-            return Action("call")
-        if strength == "strong" and callRatio < 0.9 and stackRatio < 0.6:
-            return Action("call")
-        if strength == "medium" and callRatio < 0.45 and stackRatio < .35:
-            return Action("call")
-        if strength == "playable" and callRatio < .2 and stackRatio < .2:
-            return Action("call")
-        if strength == "weak" and callRatio < .12 and stackRatio < .08 and random.random() < .08:
-            return Action("call")
-        
+
+        if strength == "strong":
+            if callRatio < 0.9 or stackRatio < 0.6:
+                return Action("call")
+
+        if strength == "medium":
+            if callRatio < 0.45 or stackRatio < 0.35:
+                return Action("call")
+
+        if strength == "playable":
+            if callRatio < 0.2 or stackRatio < 0.2:
+                return Action("call")
+
+        if strength == "weak":
+            if callRatio < 0.12 and stackRatio < 0.08 and random.random() < 0.08:
+                return Action("call")
+
         chance = pressureCallChance(strength, callRatio, stackRatio)
-        if callRatio > .75:
+
+        if callRatio > 0.75:
             adjustedChance = chance * (1 - min(callRatio, 1)) * (1 - stackRatio)
             if random.random() < adjustedChance:
                 return Action("call")
-        
+
         return Action("fold")
     
     def chooseAction(self, game, table, call=0):
