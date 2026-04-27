@@ -1095,10 +1095,16 @@ while running:
                 boss_thinking = False
 
         if not animating and not boss_thinking:
-            if poker_game.phase != "handCheck" and poker_game.playerActed and poker_game.bossActed:
-                poker_game.changePhase()
-                poker_game.playerActed = False
-                poker_game.bossActed = False
+            if poker_game.phase != "handCheck":
+                if poker_game.someoneAllIn():
+                    poker_game.changePhase()
+                    poker_game.playerActed = False
+                    poker_game.bossActed = False
+
+                elif poker_game.playerActed and poker_game.bossActed:
+                    poker_game.changePhase()
+                    poker_game.playerActed = False
+                    poker_game.bossActed = False
 
             if poker_game.phase == "flop":
                 poker_game.dealCommunityCards()

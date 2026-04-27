@@ -173,13 +173,13 @@ class Action:
         if self.type == "fold":
             player.folded = True
         elif self.type == "call":
-            toCall = game.currentBet - player.currentContribution
+            toCall = min(game.currentBet - player.currentContribution, player.chips)
             player.chips -= toCall
             game.table.pot += toCall
             player.currentContribution += toCall
         elif self.type == "raise":
             toCall = game.currentBet - player.currentContribution
-            total = toCall + self.amount   # self.amount is always 50 in the UI
+            total = min(toCall + self.amount, player.chips)
             game.currentBet += self.amount
             player.chips -= total
             game.table.pot += total
@@ -464,6 +464,10 @@ class ActiveGame:
             self.boss.chips += splitPot
             self.table.pot = 0
             return None, playerHandRank
+        
+    def someoneAllIn(self):
+        return self.human.chips <= 0 or self.boss.chips <= 0
+    
         
     def awardPot(self, winner):
         winner.chips += self.table.pot
