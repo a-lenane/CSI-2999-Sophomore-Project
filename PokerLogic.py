@@ -88,24 +88,39 @@ class Boss(Player):
             if strength == "medium" and random.random() < 0.1:
                 return Action("raise", max(50, game.table.pot // 3))
             return Action("check")
+
+        # Preflop protection
+        if len(game.table.communityCards) == 0:
+            if strength in ["strongest", "strong", "medium"]:
+                return Action("call")
+
+            if strength == "playable" and callRatio < 0.5:
+                return Action("call")
+
+            if strength == "weak" and callRatio < 0.25:
+                return Action("call")
+
         if strength == "strongest":
             return Action("raise", max(50, game.table.pot // 2))
-        if strength == "strong" and callRatio < .9:
+
+        if strength == "strong" and (callRatio < 0.9 or stackRatio < 0.6):
             return Action("call")
-        if strength == "medium" and callRatio < .45:
+
+        if strength == "medium" and (callRatio < 0.45 or stackRatio < 0.35):
             return Action("call")
-        if strength == "playable" and callRatio < .25:
+
+        if strength == "playable" and (callRatio < 0.25 or stackRatio < 0.2):
             return Action("call")
-        
-        if strength == "weak" and callRatio <.6 and random.random() < .20:
+
+        if strength == "weak" and callRatio < 0.6 and random.random() < 0.20:
             return Action("call")
-        ##random call chance against big bets
+
         chance = pressureCallChance(strength, callRatio, stackRatio)
-        if callRatio > .75:
+        if callRatio > 0.75:
             adjustedChance = chance * (1 - min(callRatio, 1)) * (1 - stackRatio)
             if random.random() < adjustedChance:
                 return Action("call")
-        
+
         return Action("fold")
     
     def hardDecision(self, strength, call, callRatio, stackRatio, game):
