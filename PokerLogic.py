@@ -1,3 +1,4 @@
+# PokerLogic.py
 import random
 from collections import Counter
 from itertools import combinations
@@ -22,10 +23,10 @@ class Player:
         self.name = name
         self.hand = []
         self.folded = False
-        # Poker buffs (in‑game hand modifiers)
         self.buffs = {
             "fourCardStraight": False,
             "fourCardFlush": False,
+            "peekBossCard": True,
             "peekBossCard": True,
             "peekBossCardUsed": False
         }
@@ -127,6 +128,12 @@ class Boss(Player):
             return Action("call")
         if strength == "playable" and callRatio < .2 and stackRatio < .2:
             return Action("call")
+        if strength == "strong" and callRatio < 0.9 and stackRatio < 0.6:
+            return Action("call")
+        if strength == "medium" and callRatio < 0.45 and stackRatio < .35:
+            return Action("call")
+        if strength == "playable" and callRatio < .2 and stackRatio < .2:
+            return Action("call")
         if strength == "weak" and callRatio < .12 and stackRatio < .08 and random.random() < .08:
             return Action("call")
         
@@ -172,13 +179,96 @@ class Action:
             player.currentContribution += toCall
         elif self.type == "raise":
             toCall = game.currentBet - player.currentContribution
-            total = toCall + self.amount
+            total = toCall + self.amount   # self.amount is always 50 in the UI
             game.currentBet += self.amount
             player.chips -= total
             game.table.pot += total
             player.currentContribution += total
         elif self.type == "check":
             pass
+
+
+def get_dynamic_raise_limits(game, player=None, default_raise=50):
+    player = player or game.currentPlayer
+    call_amount = game.getCallAmount(player)
+    max_raise = max(0, player.chips - call_amount)
+
+    return {
+        "can_raise": max_raise > 0,
+        "call_amount": call_amount,
+        "max_raise": max_raise,
+        "default_raise": min(default_raise, max_raise),
+    }
+
+
+def process_dynamic_raise(game, raise_amount=None, player=None, all_in=False):
+    player = player or game.currentPlayer
+    limits = get_dynamic_raise_limits(game, player)
+    call_amount = limits["call_amount"]
+    max_raise = limits["max_raise"]
+
+    if all_in:
+        raise_amount = max_raise
+
+    if max_raise <= 0:
+        return {
+            "success": False,
+            "error": "No chips left to raise.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    if raise_amount is None or raise_amount == "":
+        return {
+            "success": False,
+            "error": "Type a raise amount.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    try:
+        raise_amount = int(raise_amount)
+    except ValueError:
+        return {
+            "success": False,
+            "error": "Raise amount must be a number.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    if raise_amount <= 0:
+        return {
+            "success": False,
+            "error": "Enter an amount above $0.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    if raise_amount > max_raise:
+        return {
+            "success": False,
+            "error": f"Max raise is ${max_raise}.",
+            "call_amount": call_amount,
+            "max_raise": max_raise,
+        }
+
+    action = Action("raise", raise_amount)
+    action.processAction(player, game)
+
+    if player == game.human:
+        game.playerActed = True
+    elif player == game.boss:
+        game.bossActed = True
+
+    return {
+        "success": True,
+        "error": None,
+        "action": action,
+        "call_amount": call_amount,
+        "raise_amount": raise_amount,
+        "max_raise": max_raise,
+    }
+
 
 
 def get_dynamic_raise_limits(game, player=None, default_raise=50):

@@ -1,3 +1,4 @@
+# main gui.py
 import pygame
 import sys
 import random
@@ -5,8 +6,10 @@ import json
 import os
 from PokerLogic import *
 from DialogueCasino import BOSS_DIALOGUE, STORY_PAGES, GAME_OVER_TEXT, ENDING_TEXT
+from sprite_loader import SpriteLoader
 
 pygame.init()
+pygame.mixer.init()  # initialize audio
 
 WIDTH, HEIGHT = 1280, 720
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
@@ -20,8 +23,6 @@ WHITE = (255, 255, 255)
 LIGHT_GOLD = (255, 215, 0)
 FLOOR = (40, 40, 40)
 WALL = (20, 20, 20)
-PLAYER_COLOR = (200, 50, 50)
-NPC_COLOR = (200, 200, 50)
 CARD_BACK_COLOR = (100, 50, 0)
 BOSS_MSG_BG = (0, 0, 0, 180)
 MENU_BG = (0, 0, 0, 200)
@@ -42,8 +43,10 @@ DOOR_COLOR = (100, 50, 20)
 DOOR_HIGHLIGHT = (160, 100, 40)
 BASE_WALL_THICK = 40
 
-BASE_PLAYER_SIZE = 40
-BASE_NPC_SIZE = 35
+# Player & dealer sizes
+BASE_PLAYER_SIZE = 72
+BASE_DEALER_W = 70
+BASE_DEALER_H = 80
 BASE_TABLE_W = 120
 BASE_TABLE_H = 80
 BASE_CARD_W = 80
@@ -52,17 +55,19 @@ BASE_CARD_H = 112
 title_font = pygame.font.SysFont("arialblack", 80)
 font = pygame.font.SysFont(None, 32)
 boss_font = pygame.font.SysFont("arialblack", 28)
+big_font = pygame.font.SysFont("arialblack", 60)
 
-#event log
+sprite_loader = SpriteLoader(asset_root="ui")
+
 event_log = []
-MAX_LOG_LINES = 6
+MAX_LOG_LINES = 5
 
 # Persistent player
 human_player = Player("You")
 human_player.chips = 500
 
-# Progression tracking (boss chip stacks & defeat status)
-#boss_chips = {"easy": 1000, "medium": 2000, "hard": 4000}
+# Standardized boss chips
+boss_chips = {"easy": 1000, "medium": 2000, "hard": 4000}
 bosses_defeated = {"easy": False, "medium": False, "hard": False}
 
 SAVE_FILE = "savegame.json"
@@ -122,23 +127,39 @@ class Button:
     def clicked(self, event):
         return event.type == pygame.MOUSEBUTTONDOWN and self.rect.collidepoint(event.pos)
 
+# -------- ANIMATED PLAYER (drawn taller) --------
 class WorldPlayer:
     def __init__(self):
         self.rect = pygame.Rect(100, 100, BASE_PLAYER_SIZE, BASE_PLAYER_SIZE)
         self.base_speed = 5
         self.x_ratio = 0.1
         self.y_ratio = 0.1
+        self.direction = "down"
+        self.moving = False
+        self.frame_index = 0.0
+        self.sprite_frames = None
+        self._load_frames(BASE_PLAYER_SIZE)
+
+    def _load_frames(self, tile_size):
+        self.sprite_frames = sprite_loader.load_player_frames(tile_size=tile_size)
 
     def resize(self, scale_x, scale_y):
         width = int(BASE_PLAYER_SIZE * scale_x)
         height = int(BASE_PLAYER_SIZE * scale_y)
         self.rect.size = (width, height)
+        self._load_frames(max(20, width))
         self.reposition()
 
     def reposition(self):
         self.rect.center = (WIDTH * self.x_ratio, HEIGHT * self.y_ratio)
 
     def move(self, dx, dy, colliders):
+        self.moving = dx != 0 or dy != 0
+        if abs(dx) > abs(dy):
+            self.direction = "right" if dx > 0 else "left"
+        elif dy != 0:
+            self.direction = "down" if dy > 0 else "up"
+
         self.rect.x += dx
         for collider in colliders:
             if self.rect.colliderect(collider):
@@ -153,58 +174,106 @@ class WorldPlayer:
                     self.rect.bottom = collider.top
                 elif dy < 0:
                     self.rect.top = collider.bottom
+
         self.x_ratio = self.rect.centerx / WIDTH
         self.y_ratio = self.rect.centery / HEIGHT
 
-    def draw(self, surface):
-        pygame.draw.rect(surface, PLAYER_COLOR, self.rect)
+    def update_animation(self, dt_ms):
+        if self.moving:
+            frame_list = self.sprite_frames.get(f"walk_{self.direction}", [])
+            if frame_list:
+                self.frame_index = (self.frame_index + 0.012 * dt_ms) % len(frame_list)
+        else:
+            self.frame_index = 0.0
 
-class NPC:
-    def __init__(self, x_ratio, y_ratio):
-        self.x_ratio, self.y_ratio = x_ratio, y_ratio
-        self.rect = pygame.Rect(0, 0, BASE_NPC_SIZE, BASE_NPC_SIZE)
-        self.timer = 0
-        self.direction = (0, 0)
-        self.base_speed = 2
+    def current_frame(self):
+        key = f"walk_{self.direction}" if self.moving else f"idle_{self.direction}"
+        frames = self.sprite_frames.get(key, [])
+        if not frames:
+            return pygame.Surface(self.rect.size, pygame.SRCALPHA)
+        idx = int(self.frame_index) % len(frames)
+        return frames[idx]
+
+    def draw(self, surface):
+        frame = self.current_frame()
+        stretched = pygame.transform.scale(frame, (self.rect.width, int(self.rect.height * 1.2)))
+        shadow = pygame.Surface((self.rect.width // 2, self.rect.height // 6), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, (0, 0, 0, 80), shadow.get_rect())
+        shadow_rect = shadow.get_rect(midbottom=(self.rect.centerx, self.rect.bottom - 5))
+        surface.blit(shadow, shadow_rect)
+        sprite_rect = stretched.get_rect(midbottom=(self.rect.centerx, self.rect.bottom + 2))
+        surface.blit(stretched, sprite_rect)
+
+# -------- DEALER (wider) --------
+class Dealer:
+    def __init__(self, table_rect, difficulty):
+        self.table_rect = table_rect
+        self.difficulty = difficulty   # "easy", "medium", "hard"
+        self.rect = pygame.Rect(0, 0, BASE_DEALER_W, BASE_DEALER_H)
+        self.sprite = None
 
     def resize(self, scale_x, scale_y):
-        width = int(BASE_NPC_SIZE * scale_x)
-        height = int(BASE_NPC_SIZE * scale_y)
-        self.rect.size = (width, height)
-        self.reposition()
+        w = int(BASE_DEALER_W * scale_x)
+        h = int(BASE_DEALER_H * scale_y)
+        self.rect.size = (w, h)
 
-    def reposition(self):
-        self.rect.center = (WIDTH * self.x_ratio, HEIGHT * self.y_ratio)
+        if self.difficulty == "easy":
+            sprite_name = "dealer.png"
+        elif self.difficulty == "medium":
+            sprite_name = "gambler.png"
+        else:
+            sprite_name = "boss.png"
 
-    def update(self, colliders, speed_scale_x, speed_scale_y):
-        self.timer -= 1
-        if self.timer <= 0:
-            if random.random() < 0.7:
-                self.direction = (0, 0)
-            else:
-                self.direction = random.choice([(1,0), (-1,0), (0,1), (0,-1)])
-            self.timer = random.randint(30, 90)
-        dx = self.direction[0] * self.base_speed * speed_scale_x
-        dy = self.direction[1] * self.base_speed * speed_scale_y
-        self.rect.x += dx
-        for collider in colliders:
-            if self.rect.colliderect(collider):
-                if dx > 0:
-                    self.rect.right = collider.left
-                elif dx < 0:
-                    self.rect.left = collider.right
-        self.rect.y += dy
-        for collider in colliders:
-            if self.rect.colliderect(collider):
-                if dy > 0:
-                    self.rect.bottom = collider.top
-                elif dy < 0:
-                    self.rect.top = collider.bottom
-        self.x_ratio = self.rect.centerx / WIDTH
-        self.y_ratio = self.rect.centery / HEIGHT
+        self.sprite = sprite_loader.load_dealer_sprite(sprite_name, w, h)
+        self._update_position()
+
+    def _update_position(self):
+        self.rect.midbottom = (self.table_rect.centerx, self.table_rect.top - 10)
 
     def draw(self, surface):
-        pygame.draw.rect(surface, NPC_COLOR, self.rect)
+        if self.sprite is None:
+            return
+        if not bosses_defeated.get(self.difficulty, False):
+            surface.blit(self.sprite, self.rect)
+
+# --------------------------------------------------
+# Room configuration (NPCs removed)
+tables = []
+obstacles = []
+dealers = []
+
+def set_room_layout(room_idx, scale_x, scale_y):
+    global tables, obstacles, dealers
+    table_w = int(BASE_TABLE_W * scale_x)
+    table_h = int(BASE_TABLE_H * scale_y)
+
+    obstacles.clear()
+    tables.clear()
+    dealers.clear()
+
+    if room_idx == 0:          # easy room
+        table_rect = pygame.Rect(WIDTH * 0.3, HEIGHT * 0.3, table_w, table_h)
+        tables.append(table_rect)
+        dealers.append(Dealer(table_rect, "easy"))
+        obs1 = pygame.Rect(WIDTH*0.15, HEIGHT*0.6, 30, 30)
+        obs2 = pygame.Rect(WIDTH*0.7, HEIGHT*0.8, 50, 30)
+        obs3 = pygame.Rect(WIDTH*0.85, HEIGHT*0.2, 40, 40)
+        obstacles.extend([obs1, obs2, obs3])
+    elif room_idx == 1:        # medium room
+        table_rect = pygame.Rect(WIDTH * 0.5, HEIGHT * 0.5, table_w, table_h)
+        tables.append(table_rect)
+        dealers.append(Dealer(table_rect, "medium"))
+        obs1 = pygame.Rect(WIDTH*0.2, HEIGHT*0.2, 60, 60)
+        obs2 = pygame.Rect(WIDTH*0.75, HEIGHT*0.7, 45, 45)
+        obs3 = pygame.Rect(WIDTH*0.1, HEIGHT*0.8, 35, 60)
+        obstacles.extend([obs1, obs2, obs3])
+    else:                       # hard room
+        table_rect = pygame.Rect(WIDTH * 0.5, HEIGHT * 0.4, table_w, table_h)
+        tables.append(table_rect)
+        dealers.append(Dealer(table_rect, "hard"))
+
+    for dealer in dealers:
+        dealer.resize(scale_x, scale_y)
 
 class Door:
     def __init__(self, rect, target_room, spawn_pos):
@@ -235,39 +304,7 @@ class CardAnimation:
         rect = self.image.get_rect(center=pos)
         surface.blit(self.image, rect)
 
-# Room configurations (no guards)
-tables = []
-npcs = []
-obstacles = []
-
-def set_room_layout(room_idx, scale_x, scale_y):
-    global tables, npcs, obstacles
-    table_w = int(BASE_TABLE_W * scale_x)
-    table_h = int(BASE_TABLE_H * scale_y)
-
-    obstacles.clear()
-    if room_idx == 0:
-        tables = [pygame.Rect(WIDTH * 0.3, HEIGHT * 0.3, table_w, table_h)]
-        npcs = [NPC(0.2, 0.3), NPC(0.4, 0.5), NPC(0.7, 0.2)]
-        obs1 = pygame.Rect(WIDTH*0.15, HEIGHT*0.6, 30, 30)
-        obs2 = pygame.Rect(WIDTH*0.7, HEIGHT*0.8, 50, 30)
-        obs3 = pygame.Rect(WIDTH*0.85, HEIGHT*0.2, 40, 40)
-        obstacles.extend([obs1, obs2, obs3])
-    elif room_idx == 1:
-        tables = [pygame.Rect(WIDTH * 0.5, HEIGHT * 0.5, table_w, table_h)]
-        npcs = []
-        obs1 = pygame.Rect(WIDTH*0.2, HEIGHT*0.2, 60, 60)
-        obs2 = pygame.Rect(WIDTH*0.75, HEIGHT*0.7, 45, 45)
-        obs3 = pygame.Rect(WIDTH*0.1, HEIGHT*0.8, 35, 60)
-        obstacles.extend([obs1, obs2, obs3])
-    else:
-        tables = [pygame.Rect(WIDTH * 0.5, HEIGHT * 0.4, table_w, table_h)]
-        npcs = []
-
-    for n in npcs:
-        n.resize(scale_x, scale_y)
-
-# Initialization
+# --------------------------------------------------
 player = WorldPlayer()
 walls = []
 doors = []
@@ -275,14 +312,14 @@ current_room = 0
 current_scale_x = 1.0
 current_scale_y = 1.0
 
-# Buttons
-checkCall_btn = Button("Check/Call", 0.2, 0.9, 0.15, 0.06)
-raise_btn = Button("Raise", 0.4, 0.9, 0.15, 0.06)
-fold_btn = Button("Fold", 0.6, 0.9, 0.15, 0.06)
-leave_btn = Button("Leave", 0.8, 0.9, 0.15, 0.06)
-play_again_btn = Button("Play Again", 0.4, 0.85, 0.2, 0.08)
-leave_table_btn = Button("Leave Table", 0.6, 0.85, 0.2, 0.08)
-peek_btn = Button("Peek Card", .8, .82, .15, .06)
+# Buttons shifted right to accommodate event log
+checkCall_btn = Button("Check/Call", 0.4, 0.9, 0.15, 0.06)
+raise_btn = Button("Raise (50$)", 0.55, 0.9, 0.15, 0.06)
+fold_btn = Button("Fold", 0.7, 0.9, 0.15, 0.06)
+leave_btn = Button("Leave", 0.85, 0.9, 0.15, 0.06)
+play_again_btn = Button("Play Again", 0.4, 0.85, 0.15, 0.06)
+leave_table_btn = Button("Leave Table", 0.6, 0.85, 0.15, 0.06)
+peek_btn = Button("Peek Card", 0.85, 0.82, 0.15, 0.06)
 
 volume_slider_btn = Button("Volume: 50%", 0.5, 0.4, 0.3, 0.07)
 abandon_btn = Button("Abandon Mission", 0.5, 0.55, 0.3, 0.07)
@@ -309,10 +346,25 @@ table_intro_shown = {"easy": False, "medium": False, "hard": False}
 show_hand_menu = False
 last_hand_player_won = False
 
-ENTRY_COST = {"easy": 50, "medium": 100, "hard": 200}
 escape_menu_active = False
 story_mode_active = False
 current_story_page = 0
+
+# Volume control
+volume_levels = ["0%", "25%", "50%", "75%", "100%"]
+current_volume_index = 2  # 50%
+def set_volume_from_text(btn_text):
+    percent = int(btn_text.split()[1].strip('%'))
+    volume = percent / 100.0
+    pygame.mixer.music.set_volume(volume)
+
+# Load and start background music
+try:
+    pygame.mixer.music.load("ui/music.mp3")
+    pygame.mixer.music.set_volume(0.5)  # 50%
+    pygame.mixer.music.play(-1)  # loop forever
+except Exception as e:
+    print("Could not load music.mp3:", e)
 
 def set_boss_message(msg):
     global boss_message_text, boss_message_timer
@@ -338,8 +390,9 @@ def draw_boss_message(surface):
         bg_rect = msg_surf.get_rect().inflate(padding*2, padding)
         bg_surf = pygame.Surface(bg_rect.size, pygame.SRCALPHA)
         bg_surf.fill((0, 0, 0, 180))
-        x = WIDTH * 0.15
-        y = HEIGHT * 0.05
+        # center under pot text (pot is at y = HEIGHT/10)
+        x = WIDTH // 2 - bg_rect.width // 2
+        y = HEIGHT // 10 + 40
         bg_rect.topleft = (x, y)
         surface.blit(bg_surf, bg_rect)
         surface.blit(msg_surf, msg_surf.get_rect(center=bg_rect.center))
@@ -349,22 +402,17 @@ def draw_event_log(surface):
     box_height = HEIGHT * .25
     x = WIDTH * .02
     y = HEIGHT * .68
-
     bg = pygame.Surface((box_width, box_height), pygame.SRCALPHA)
     bg.fill((0, 0, 0, 180))
     surface.blit(bg, (x,y))
-
     pygame.draw.rect(surface, GOLD, (x,y, box_width, box_height), 2)
-
     title = font.render("Event Log", True, GOLD)
     surface.blit(title, (x + 10, y + 8))
-
     line_y = y + 40
     for line in event_log:
         text = font.render(line, True, WHITE)
         surface.blit(text, (x+10, line_y))
         line_y += 28
-
 
 def get_card_back_image(scale_x, scale_y):
     card_w = int(BASE_CARD_W * scale_x)
@@ -474,7 +522,7 @@ def create_walls_and_doors(scale_x, scale_y):
         doors.append(Door(right_door_rect, 2, None))
 
 def recalculate_elements():
-    global walls, deck_pos, card_back_img, doors, tables, npcs, obstacles, current_scale_x, current_scale_y
+    global walls, deck_pos, card_back_img, doors, tables, obstacles, current_scale_x, current_scale_y, dealers
     current_scale_x = WIDTH / 1280.0
     current_scale_y = HEIGHT / 720.0
     player.resize(current_scale_x, current_scale_y)
@@ -640,18 +688,16 @@ def draw_deck(surface):
     surface.blit(deck_text, deck_text.get_rect(center=deck_rect.center))
 
 def can_play_table(difficulty):
-    """Check using global progression data."""
     if bosses_defeated[difficulty]:
         return False, "This boss has already been cleaned out!"
-    if human_player.chips < ENTRY_COST[difficulty]:
-        return False, f"Need ${ENTRY_COST[difficulty]} to play at this table! (You have ${human_player.chips})"
+    if human_player.chips < 25:   # need at least small blind
+        return False, f"You need at least $25 to play! (You have ${human_player.chips})"
     if boss_chips[difficulty] <= 0:
         return False, "This boss has no chips left!"
-    # Progression: need previous boss defeated
     if difficulty == "medium" and not bosses_defeated["easy"]:
-        return False, "Old Guard: 'Beat me first before you face the Lady.'"
+        return False, "Old Guard: 'Beat me first before you face the Slick Ruffian.'"
     if difficulty == "hard" and not bosses_defeated["medium"]:
-        return False, "Sharp Lady: 'You're not ready for him yet, darling.'"
+        return False, "Slick Ruffian: 'You're not ready for him yet, partner.'"
     return True, "Ready to play!"
 
 def start_poker_game(room, intro_dialogue=True):
@@ -670,6 +716,8 @@ def start_poker_game(room, intro_dialogue=True):
         set_boss_message(msg)
         return False
 
+    # No buy‑in deduction – blinds will be taken inside newHand
+
     if intro_dialogue and not table_intro_shown.get(diff_str, False):
         if room == 0:
             lines = ["You approach the worn green felt table.",
@@ -686,8 +734,6 @@ def start_poker_game(room, intro_dialogue=True):
         show_dialogue_screen(lines)
         table_intro_shown[diff_str] = True
 
-    
-
     boss_name = BOSS_DIALOGUE[diff_str]["name"]
     boss_player = Boss(boss_name, "serious", ["easy","medium","hard"].index(diff_str)+1)
     boss_player.chips = boss_chips[diff_str]
@@ -698,7 +744,9 @@ def start_poker_game(room, intro_dialogue=True):
     human_player.buffs["peekBossCardUsed"] = False
 
     poker_game.newHand()
-    
+    # Log blinds
+    add_event(f"You posted small blind: ${poker_game.smallBlind}")
+    add_event(f"Boss posted big blind: ${poker_game.bigBlind}")
 
     prev_human_cards = []
     prev_boss_cards = []
@@ -756,7 +804,6 @@ def check_and_exit_poker_if_defeated():
         boss_chips[current_boss_difficulty] = 0
         bosses_defeated[current_boss_difficulty] = True
 
-        # Award poker buffs
         if current_boss_difficulty == "easy":
             human_player.buffs["fourCardStraight"] = True
         elif current_boss_difficulty == "medium":
@@ -859,12 +906,11 @@ while running:
                 save_game()
                 running = False
             if volume_slider_btn.clicked(event):
-                if "50%" in volume_slider_btn.text:
-                    volume_slider_btn.text = "Volume: 75%"
-                elif "75%" in volume_slider_btn.text:
-                    volume_slider_btn.text = "Volume: 100%"
-                else:
-                    volume_slider_btn.text = "Volume: 50%"
+                # cycle through volume levels
+                current_volume_index = (current_volume_index + 1) % len(volume_levels)
+                new_text = f"Volume: {volume_levels[current_volume_index]}"
+                volume_slider_btn.text = new_text
+                set_volume_from_text(new_text)
 
         if game_state == "world" and not escape_menu_active:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -885,9 +931,8 @@ while running:
                 else:
                     door = near_any_door()
                     if door:
-                        # Progression checks using bosses_defeated
                         if door.target_room == 2 and not bosses_defeated["medium"]:
-                            set_boss_message("Door locked! Face the Sharp Lady first.")
+                            set_boss_message("Door locked! Face the Slick Ruffian first.")
                             continue
                         if door.target_room == 1 and not bosses_defeated["easy"]:
                             set_boss_message("Door locked! The Old Guard blockades your path.")
@@ -938,7 +983,7 @@ while running:
                         continue
                     action = Action("raise", 50)
                     action.processAction(poker_game.currentPlayer, poker_game)
-                    add_event(f"You raised to ${poker_game.currentBet}")
+                    add_event(f"You raised by ${poker_game.currentBet - callAmount} (to ${poker_game.currentBet})")
                     poker_game.playerActed = True
                     boss_thinking = True
                     boss_think_start_time = current_time
@@ -985,8 +1030,7 @@ while running:
         dx = (keys[pygame.K_d] - keys[pygame.K_a]) * player_speed_x
         dy = (keys[pygame.K_s] - keys[pygame.K_w]) * player_speed_y
         player.move(dx, dy, all_colliders)
-        for npc in npcs:
-            npc.update(all_colliders, speed_scale_x, speed_scale_y)
+        player.update_animation(dt)
 
     if game_state == "poker" and poker_game is not None:
         update_boss_message(dt)
@@ -1098,43 +1142,35 @@ while running:
             else:
                 knob_pos = (door.rect.centerx, door.rect.bottom - 10)
             pygame.draw.circle(screen, GOLD, knob_pos, 4)
+
         for table in tables:
-            table_color = ROOM_COLORS[current_room][0]
-            pygame.draw.rect(screen, table_color, table, border_radius=15)
-            pygame.draw.rect(screen, GOLD, table, 2, border_radius=15)
+            table_sprite = sprite_loader.load_table_sprite(table.width, table.height)
+            screen.blit(table_sprite, table.topleft)
+
+        for dealer in dealers:
+            dealer.draw(screen)
+
         for obs in obstacles:
             pygame.draw.rect(screen, (100, 70, 40), obs)
-        for npc in npcs:
-            npc.draw(screen)
+
         player.draw(screen)
 
-        chips_text = font.render(f"Chips: ${human_player.chips}", True, WHITE)
-        screen.blit(chips_text, (WIDTH - 150, 20))
+        # Your chips: top right, gold - moved left to stay visible
+        chips_text = font.render(f"Chips: ${human_player.chips}", True, GOLD)
+        screen.blit(chips_text, (WIDTH - 200, 20))
 
         if near_table():
             diff_str = "easy" if current_room == 0 else ("medium" if current_room == 1 else "hard")
             if bosses_defeated[diff_str]:
                 prompt = "The table is empty. The boss has left."
             else:
-                actual_cost = min(ENTRY_COST[diff_str], boss_chips[diff_str])
-                if current_room == 0:
-                    prompt = f"Press E to Play Poker (Easy)"
-                elif current_room == 1:
-                    if bosses_defeated["easy"]:
-                        prompt = f"Press E to Play Poker (Medium)"
-                    else:
-                        prompt = "The Sharp Lady is ignoring you."
-                else:
-                    if bosses_defeated["medium"]:
-                        prompt = f"Press E to Play Poker (Hard)"
-                    else:
-                        prompt = "The Enforcer refuses to play you."
+                prompt = f"Press E to Play Poker ({diff_str.capitalize()}) - Blinds: $25/$50"
             screen.blit(font.render(prompt, True, WHITE), (WIDTH/2 - font.size(prompt)[0]//2, HEIGHT*0.9))
         else:
             door = near_any_door()
             if door:
                 if door.target_room == 2 and not bosses_defeated["medium"]:
-                    prompt = "Door locked! Face the Sharp Lady first."
+                    prompt = "Door locked! Face the Slick Ruffian first."
                 elif door.target_room == 1 and not bosses_defeated["easy"]:
                     prompt = "Door locked! The Old Guard blockades your path."
                 else:
@@ -1162,7 +1198,8 @@ while running:
         dealer_x = 60
         dealer_y = HEIGHT * 0.12
         boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
-        dealer_label = font.render(f"{boss_name} Chips: ${poker_game.boss.chips}", True, GOLD)
+        # Opponent chips: top left, white
+        dealer_label = font.render(f"{boss_name} Chips: ${poker_game.boss.chips}", True, WHITE)
         screen.blit(dealer_label, (dealer_x, dealer_y - 30))
         if not animating and not boss_thinking and not show_hand_menu:
             callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
@@ -1170,14 +1207,15 @@ while running:
                 checkCall_btn.text = "Check"
             else:
                 checkCall_btn.text = f"Call (${callAmount})"
-            raise_btn.text = "Raise"
+            # Update raise button to show total cost
+            total_raise_cost = callAmount + 50
+            raise_btn.text = f"Raise (${total_raise_cost})"
         # Draw dealer cards
         peek_revealed = human_player.buffs.get("peekBossCardUsed", False)
 
         for i, card in enumerate(poker_game.boss.hand):
             if ('boss', i) in animating_card_keys:
                 continue
-            
             if poker_game.phase == "handCheck" or (peek_revealed and i == 0):
                 try:
                     img = pygame.transform.smoothscale(pygame.image.load(f"ui/{card.rank}_of_{card.suit}.png"), (card_w, card_h))
@@ -1212,22 +1250,22 @@ while running:
             anim.draw(screen)
         draw_boss_message(screen)
         draw_event_log(screen)
-        chips_text = font.render(f"Your Chips: ${poker_game.human.chips}", True, WHITE)
-        screen.blit(chips_text, (20, HEIGHT - 40))
+        # Your chips: top right, gold - moved left
+        chips_text = font.render(f"Your Chips: ${poker_game.human.chips}", True, GOLD)
+        screen.blit(chips_text, (WIDTH - 200, 20))
 
         if show_hand_menu and not animating:
             if boss_chips[current_boss_difficulty] > 0:
                 play_again_btn.draw(screen)
             leave_table_btn.draw(screen)
+            # Big text in the middle above community cards
             result_text = "You won the hand!" if last_hand_player_won else "You lost the hand."
-            text_surf = font.render(result_text, True, GOLD)
-            screen.blit(text_surf, text_surf.get_rect(center=(WIDTH/2, HEIGHT*0.75)))
+            big_result = big_font.render(result_text, True, GOLD)
+            screen.blit(big_result, big_result.get_rect(center=(WIDTH/2, HEIGHT*0.35)))
         elif poker_game.phase != "handCheck" and not animating and not boss_thinking:
             buttons = [checkCall_btn, raise_btn, fold_btn, leave_btn]
-
             if human_player.buffs.get("peekBossCard", False) and not human_player.buffs.get("peekBossCardUsed", False):
                 buttons.append(peek_btn)
-
             for btn in buttons:
                 btn.draw(screen)
         elif boss_thinking:
