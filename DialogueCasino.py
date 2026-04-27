@@ -11,7 +11,7 @@ BOSS_DIALOGUE = {
         "defeat": [
             "The Old Guard sighs heavily, pushing his empty chip tray away.",
             "'Well, you cleaned me out. Guess you got more street smarts than I thought, kid.'",
-            "'Take this fourCardStraight technique. You'll need it against the Slick Ruffian.'",
+            "'Take this 4-card straight technique. You'll need it against the Slick Ruffian.'",
             "The Old Guard slowly stands up and leaves the table."
         ],
         "buff": "fourCardStraight",
@@ -27,7 +27,7 @@ BOSS_DIALOGUE = {
         "defeat": [
             "The Slick Ruffian smirks, shaking her head. 'Cleaned me out.'",
             "'I haven't lost like this in years. You're dangerously good for new blood.'",
-            "'Take the fourCardFlush technique. The Enforcer won't go easy on you.'",
+            "'Take the 4-card flush technique. The Enforcer won't go easy on you.'",
             "She gathers her coat and vanishes into the shadows."
         ],
         "buff": "fourCardFlush",

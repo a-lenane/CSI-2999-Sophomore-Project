@@ -13,7 +13,7 @@ pygame.mixer.init()  # initialize audio
 
 WIDTH, HEIGHT = 1280, 720
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
-pygame.display.set_caption("Texas Hold'em: High Stakes")
+pygame.display.set_caption("Code N' Chips: Hold 'Em")
 clock = pygame.time.Clock()
 
 # Colors
@@ -976,14 +976,17 @@ while running:
                     else:
                         human_player.buffs["peekBossCardUsed"] = True
                 if raise_btn.clicked(event):
-                    callAmount = poker_game.getCallAmount(poker_game.currentPlayer)
-                    total_needed = callAmount + 50
+                    call_amount = poker_game.getCallAmount(poker_game.currentPlayer)
+                    raise_amount = 50
+                    total_needed = call_amount + raise_amount
+                    
+                    
                     if total_needed > poker_game.human.chips:
-                        set_boss_message(f"Not enough chips to raise! Need ${total_needed}.")
+                        set_boss_message(f"Not enough chips to raise!")
                         continue
-                    action = Action("raise", 50)
+                    action = Action("raise", raise_amount)
                     action.processAction(poker_game.currentPlayer, poker_game)
-                    add_event(f"You raised by ${poker_game.currentBet - callAmount} (to ${poker_game.currentBet})")
+                    add_event(f"You raised by ${raise_amount}")
                     poker_game.playerActed = True
                     boss_thinking = True
                     boss_think_start_time = current_time
@@ -1037,47 +1040,49 @@ while running:
         update_animations()
 
         if boss_thinking and not animating:
-            if current_time - boss_think_start_time >= boss_think_duration:
-                boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
-                callAmount = poker_game.getCallAmount(poker_game.boss)
-                if callAmount > poker_game.boss.chips:
-                    boss_action = Action("fold")
-                else:
-                    boss_action = poker_game.boss.chooseAction(poker_game, poker_game.table, callAmount)
-
-                boss_action.processAction(poker_game.boss, poker_game)
+            if poker_game.someoneAllIn():
                 poker_game.bossActed = True
-
-                if boss_action.type == "fold":
-                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["fold"])
-                    set_boss_message(f"{boss_name}: '{dialogue_option}'")
-                    add_event(f"{boss_name} folded")
-                    poker_game.handWinner = poker_game.human
-                    poker_game.phase = "handCheck"
-                    poker_game.phaseIndex = GAMEPHASE.index("handCheck")
-                    poker_game.playerActed = False
-                    poker_game.bossActed = False
-                elif boss_action.type == "call":
-                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["call"])
-                    set_boss_message(f"{boss_name}: '{dialogue_option}' (${callAmount})")
-                    add_event(f"{boss_name} called ${callAmount}")
-                elif boss_action.type == "raise":
-                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["raise"])
-                    set_boss_message(f"{boss_name}: '{dialogue_option}' (Raise to ${poker_game.currentBet})")
-                    add_event(f"{boss_name} raised to ${poker_game.currentBet}")
-                elif boss_action.type == "check":
-                    dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["check"])
-                    add_event(f"{boss_name} checked")
-                    set_boss_message(f"{boss_name}: '{dialogue_option}'")
-
                 boss_thinking = False
+            else:
+                if current_time - boss_think_start_time >= boss_think_duration:
+                    boss_name = BOSS_DIALOGUE[current_boss_difficulty]["name"]
+                    callAmount = poker_game.getCallAmount(poker_game.boss)
+                    if callAmount > poker_game.boss.chips:
+                        boss_action = Action("fold")
+                    else:
+                        boss_action = poker_game.boss.chooseAction(poker_game, poker_game.table, callAmount)
+
+                    boss_action.processAction(poker_game.boss, poker_game)
+                    poker_game.bossActed = True
+
+                    if boss_action.type == "fold":
+                        dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["fold"])
+                        set_boss_message(f"{boss_name}: '{dialogue_option}'")
+                        add_event(f"{boss_name} folded")
+                        poker_game.handWinner = poker_game.human
+                        poker_game.phase = "handCheck"
+                        poker_game.phaseIndex = GAMEPHASE.index("handCheck")
+                        poker_game.playerActed = False
+                        poker_game.bossActed = False
+                    elif boss_action.type == "call":
+                        dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["call"])
+                        set_boss_message(f"{boss_name}: '{dialogue_option}' (${callAmount})")
+                        add_event(f"{boss_name} called ${callAmount}")
+                    elif boss_action.type == "raise":
+                        dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["raise"])
+                        set_boss_message(f"{boss_name}: '{dialogue_option}' (Raise to ${poker_game.currentBet})")
+                        add_event(f"{boss_name} raised to ${poker_game.currentBet}")
+                    elif boss_action.type == "check":
+                        dialogue_option = random.choice(BOSS_DIALOGUE[current_boss_difficulty]["check"])
+                        add_event(f"{boss_name} checked")
+                        set_boss_message(f"{boss_name}: '{dialogue_option}'")
+
+                    boss_thinking = False
 
         if not animating and not boss_thinking:
             if poker_game.phase != "handCheck":
                 if poker_game.someoneAllIn():
                     poker_game.changePhase()
-                    poker_game.playerActed = False
-                    poker_game.bossActed = False
 
                 elif poker_game.playerActed and poker_game.bossActed:
                     poker_game.changePhase()
@@ -1100,8 +1105,20 @@ while running:
                 if poker_game.handWinner is not None:
                     poker_game.awardPot(poker_game.handWinner)
                     winner = poker_game.handWinner
+                    
                 else:
                     winner, rank = poker_game.showDown()
+
+                    rank_value = rank[0] if isinstance(rank, tuple) else rank
+                    hand_name = HAND_TYPE[rank_value]
+
+                    if winner == poker_game.human:
+                        add_event(f"You win with a {hand_name}")
+
+                    elif winner == poker_game.boss:
+                        add_event(f"Boss win with a {hand_name}")
+                    else:
+                        add_event(f"Split pot with {hand_name}")
                 poker_game.showdownDone = True
                 human_player.chips = poker_game.human.chips
                 last_hand_player_won = (winner == poker_game.human)
@@ -1113,7 +1130,7 @@ while running:
     # DRAW
     if game_state == "main_menu":
         screen.fill((0, 0, 0))
-        title = title_font.render("TEXAS HOLD'EM", True, GOLD)
+        title = title_font.render("Code N' Chips: Hold 'Em", True, GOLD)
         screen.blit(title, title.get_rect(center=(WIDTH/2, HEIGHT*0.2)))
         new_game_btn.draw(screen)
         continue_btn.draw(screen)

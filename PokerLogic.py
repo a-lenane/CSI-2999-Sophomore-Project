@@ -27,7 +27,6 @@ class Player:
             "fourCardStraight": False,
             "fourCardFlush": False,
             "peekBossCard": True,
-            "peekBossCard": True,
             "peekBossCardUsed": False
         }
 
@@ -178,12 +177,16 @@ class Action:
             game.table.pot += toCall
             player.currentContribution += toCall
         elif self.type == "raise":
-            toCall = game.currentBet - player.currentContribution
-            total = min(toCall + self.amount, player.chips)
-            game.currentBet += self.amount
-            player.chips -= total
-            game.table.pot += total
-            player.currentContribution += total
+            toCall = max(0, game.currentBet - player.currentContribution)
+            desired_total = toCall + self.amount
+
+            actual_total = min(desired_total, player.chips)
+
+            player.chips -= actual_total
+            game.table.pot += actual_total
+            player.currentContribution += actual_total
+
+            game.currentBet = max(game.currentBet, player.currentContribution)
         elif self.type == "check":
             pass
 
