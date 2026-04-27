@@ -1,20 +1,27 @@
 {
-  "chips": 150,
-  "beaten_bosses": [
-    "easy",
-    "medium"
-  ],
-  "buffs": [
-    "Lucky Draw",
-    "High Roller"
-  ],
-  "second_chance_used": false,
+  "chips": 400,
+  "boss_chips": {
+    "easy": 900,
+    "medium": 2000,
+    "hard": 4000
+  },
+  "bosses_defeated": {
+    "easy": false,
+    "medium": false,
+    "hard": false
+  },
+  "player_buffs": {
+    "fourCardStraight": false,
+    "fourCardFlush": false,
+    "peekBossCard": true,
+    "peekBossCardUsed": false
+  },
   "table_intro_shown": {
     "easy": true,
-    "medium": true,
-    "hard": true
+    "medium": false,
+    "hard": false
   },
   "current_room": 0,
-  "player_x_ratio": 0.41015625,
-  "player_y_ratio": 0.3277777777777778
+  "player_x_ratio": 0.421875,
+  "player_y_ratio": 0.375
 }
